@@ -7,6 +7,7 @@ import pandas as pd
 from core.providers.base import ProviderResult, normalize_symbol
 from core.providers.eastmoney import EastMoneyClient
 from core.providers.rate_limit import EastMoneyLimiter
+from core.providers.sina import SinaKlineClient
 from core.providers.tencent import TencentKlineClient
 
 
@@ -86,6 +87,43 @@ class TencentProviderTest(unittest.TestCase):
         args, kwargs = session.get.call_args
         self.assertIn("web.ifzq.gtimg.cn", args[0])
         self.assertEqual(kwargs["proxies"], {"http": "", "https": ""})
+
+
+class SinaProviderTest(unittest.TestCase):
+    def test_sina_daily_kline_parses_rows_for_audit(self):
+        session = Mock()
+        response = Mock(status_code=200)
+        response.json.return_value = [
+            {
+                "day": "2026-06-15",
+                "open": "11.210",
+                "high": "11.210",
+                "low": "10.980",
+                "close": "11.060",
+                "volume": "154130495",
+            },
+            {
+                "day": "2026-06-16",
+                "open": "11.050",
+                "high": "11.120",
+                "low": "10.910",
+                "close": "10.940",
+                "volume": "94270804",
+            },
+        ]
+        session.get.return_value = response
+        client = SinaKlineClient(session=session)
+
+        result = client.fetch_daily_kline("000001", "20260615", "20260616")
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result.iloc[0]["ts_code"], "000001.SZ")
+        self.assertEqual(result.iloc[0]["close"], 11.06)
+        self.assertEqual(result.iloc[0]["vol"], 154130495.0)
+        self.assertTrue(pd.isna(result.iloc[0]["amount"]))
+        args, kwargs = session.get.call_args
+        self.assertIn("quotes.sina.cn", args[0])
+        self.assertEqual(kwargs["params"]["symbol"], "sz000001")
 
 
 if __name__ == "__main__":

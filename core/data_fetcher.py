@@ -39,6 +39,7 @@ from loguru import logger
 
 from core.providers.eastmoney import EastMoneyClient
 from core.providers.rate_limit import EastMoneyLimiter
+from core.providers.sina import SinaKlineClient
 from core.providers.tencent import TencentKlineClient
 
 
@@ -194,6 +195,7 @@ class DataFetcher:
             )
         )
         self._tencent_kline_client = TencentKlineClient()
+        self._sina_kline_client = SinaKlineClient()
         
         # 初始化数据源
         self._init_akshare()
@@ -613,50 +615,11 @@ class DataFetcher:
 
     def _fetch_kline_sina(self, symbol: str, start: str, end: str) -> pd.DataFrame:
         """新浪日 K 线，用作轻量对账源。"""
-        import requests
-
-        exchange = "sz" if symbol.startswith(("0", "3")) else "sh" if symbol.startswith("6") else "bj"
-        start_ts = pd.Timestamp(start)
-        end_ts = pd.Timestamp(end)
-        # 新浪接口只支持 datalen，不支持日期区间；多取一些再本地过滤。
-        datalen = max(10, len(pd.bdate_range(start_ts, end_ts)) + 10)
         try:
-            session = requests.Session()
-            session.trust_env = False
-            resp = session.get(
-                "https://quotes.sina.cn/cn/api/json_v2.php/CN_MarketData.getKLineData",
-                params={
-                    "symbol": f"{exchange}{symbol}",
-                    "scale": "240",
-                    "ma": "no",
-                    "datalen": str(datalen),
-                },
-                headers={"User-Agent": "Mozilla/5.0"},
-                timeout=15,
-            )
-            if resp.status_code != 200:
-                return pd.DataFrame()
-            rows = resp.json()
-            if not rows:
-                return pd.DataFrame()
-
-            df = pd.DataFrame(rows)
-            df = df.rename(
-                columns={
-                    "day": "trade_date",
-                    "volume": "vol",
-                }
-            )
-            for col in ["open", "high", "low", "close", "vol"]:
-                df[col] = pd.to_numeric(df[col], errors="coerce")
-            df["trade_date"] = pd.to_datetime(df["trade_date"])
-            df = df[
-                (df["trade_date"] >= start_ts) & (df["trade_date"] <= end_ts)
-            ].copy()
-            suffix = "SZ" if symbol.startswith(("0", "3")) else "SH" if symbol.startswith("6") else "BJ"
-            df["ts_code"] = f"{symbol}.{suffix}"
-            df["amount"] = float("nan")
-            return df.sort_values("trade_date").reset_index(drop=True)
+            client = getattr(self, "_sina_kline_client", None)
+            if client is None:
+                client = SinaKlineClient()
+            return client.fetch_daily_kline(symbol, start, end)
         except Exception as e:
             logger.warning(f"新浪对账源失败 ({symbol}): {type(e).__name__}")
             return pd.DataFrame()
