@@ -1,0 +1,21 @@
+# AI 量化数据流水线依赖
+# Python 3.11+
+
+# === 数据采集 ===
+akshare>=1.14.0            # 免费A股数据（主数据源）
+tushare>=1.4.0             # Tushare Pro（财务/因子数据，需要token）
+requests>=2.32.0           # HTTP 请求
+
+# === 数据处理 ===
+pandas>=2.0.0              # 数据框架
+numpy>=1.24.0              # 数值计算
+pyarrow>=15.0.0            # Parquet 底层引擎
+duckdb>=1.0.0              # 列式数据库，替代 HDF5/CSV
+
+# === 工具 ===
+pyyaml>=6.0                # 配置文件解析
+python-dateutil>=2.8.0     # 日期工具
+loguru>=0.7.2              # 高级日志（比 logging 好用10倍）
+
+# === 可选：如用飞书推送 ===
+# httpx>=0.27.0            # 异步HTTP

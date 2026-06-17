@@ -1,0 +1,153 @@
+import os
+import tempfile
+import unittest
+
+import pandas as pd
+
+from core.data_storage import QuantDB
+
+
+class QuantDBTest(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.temp_dir.name, "test.duckdb")
+        self.db = QuantDB(self.db_path)
+        self.db.init_schema()
+
+    def tearDown(self):
+        self.db.close()
+        self.temp_dir.cleanup()
+
+    def test_batch_upsert_preserves_raw_prices_and_flags(self):
+        df = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "trade_date": pd.to_datetime(["2026-06-15"]),
+            "open": [10.0],
+            "high": [10.5],
+            "low": [9.8],
+            "close": [10.2],
+            "vol": [1000.0],
+            "amount": [float("nan")],
+            "pct_chg": [1.0],
+            "adj_factor": [float("nan")],
+            "raw_open": [10.0],
+            "raw_high": [10.5],
+            "raw_low": [9.8],
+            "raw_close": [10.2],
+            "flag_extreme": [False],
+            "flag_suspended": [False],
+            "flag_aligned": [True],
+            "flag_invalid_ohlc": [False],
+        })
+
+        self.db.upsert_daily_kline_batch(df)
+        saved = self.db.query_daily_range(
+            "000001.SZ", "2026-06-15", "2026-06-15"
+        ).iloc[0]
+
+        self.assertEqual(saved["raw_close"], 10.2)
+        self.assertTrue(bool(saved["flag_aligned"]))
+        self.assertTrue(pd.isna(saved["amount"]))
+        self.assertEqual(
+            self.db.get_latest_trade_dates_by_stock()["000001.SZ"],
+            pd.Timestamp("2026-06-15"),
+        )
+
+    def test_upsert_stock_name_history_and_source_audit(self):
+        history = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "name": ["*ST平安"],
+            "start_date": pd.to_datetime(["2021-01-01"]),
+            "end_date": pd.to_datetime(["2021-12-31"]),
+            "change_reason": ["ST"],
+            "is_st": [True],
+        })
+        audit = pd.DataFrame({
+            "audit_date": pd.to_datetime(["2026-06-16"]),
+            "ts_code": ["000001.SZ"],
+            "start_date": pd.to_datetime(["2026-06-15"]),
+            "end_date": pd.to_datetime(["2026-06-16"]),
+            "primary_source": ["tencent"],
+            "secondary_source": ["sina"],
+            "compared_rows": [2],
+            "max_close_diff_pct": [2.0],
+            "status": ["warning"],
+            "error_msg": [None],
+        })
+
+        self.db.upsert_stock_name_history(history)
+        self.db.upsert_source_audit(audit)
+
+        saved_history = self.db.query_sql("SELECT * FROM stock_name_history")
+        saved_audit = self.db.query_sql("SELECT * FROM data_source_audit")
+
+        self.assertTrue(bool(saved_history.iloc[0]["is_st"]))
+        self.assertEqual(saved_audit.iloc[0]["status"], "warning")
+
+    def test_research_universe_excludes_delisted_st_suspended_and_invalid_rows(self):
+        stocks = pd.DataFrame({
+            "ts_code": ["000001.SZ", "000002.SZ", "000003.SZ", "000004.SZ", "000005.SZ"],
+            "symbol": ["000001", "000002", "000003", "000004", "000005"],
+            "name": ["平安银行", "万科A", "*ST金田", "异常股", "正常股"],
+            "exchange": ["SZSE"] * 5,
+            "area": ["深圳"] * 5,
+            "industry": ["银行", "地产", "综合", "综合", "综合"],
+            "list_status": ["L", "L", "D", "L", "L"],
+            "list_date": pd.to_datetime(["1991-04-03", "1991-01-29", "1991-07-03", "2020-01-01", "2020-01-01"]),
+            "delist_date": [pd.NaT, pd.NaT, pd.Timestamp("2026-06-15"), pd.NaT, pd.NaT],
+        })
+        self.db.conn.register("_tmp_stocks_for_universe", stocks)
+        self.db.conn.execute("""
+            INSERT INTO stock_list (
+                ts_code, symbol, name, exchange, area, industry,
+                list_status, list_date, delist_date
+            )
+            SELECT
+                ts_code, symbol, name, exchange, area, industry,
+                list_status, list_date, delist_date
+            FROM _tmp_stocks_for_universe
+        """)
+
+        kline = pd.DataFrame({
+            "ts_code": ["000001.SZ", "000002.SZ", "000003.SZ", "000004.SZ", "000005.SZ"],
+            "trade_date": pd.to_datetime(["2026-06-16"] * 5),
+            "open": [10.0, 20.0, 30.0, 40.0, 50.0],
+            "high": [10.5, 20.5, 30.5, 40.5, 50.5],
+            "low": [9.8, 19.8, 29.8, 39.8, 49.8],
+            "close": [10.2, 20.2, 30.2, 40.2, 50.2],
+            "vol": [1000.0, 0.0, 1000.0, 1000.0, 1000.0],
+            "amount": [10000.0] * 5,
+            "pct_chg": [1.0] * 5,
+            "adj_factor": [1.0] * 5,
+            "raw_open": [10.0, 20.0, 30.0, 40.0, 50.0],
+            "raw_high": [10.5, 20.5, 30.5, 40.5, 50.5],
+            "raw_low": [9.8, 19.8, 29.8, 39.8, 49.8],
+            "raw_close": [10.2, 20.2, 30.2, 40.2, 50.2],
+            "flag_extreme": [False, False, False, False, False],
+            "flag_suspended": [False, True, False, False, False],
+            "flag_aligned": [False, False, False, False, False],
+            "flag_invalid_ohlc": [False, False, False, True, False],
+        })
+        self.db.upsert_daily_kline_batch(kline)
+        self.db.upsert_stock_name_history(pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "name": ["*ST平安"],
+            "start_date": pd.to_datetime(["2026-01-01"]),
+            "end_date": pd.to_datetime(["2026-12-31"]),
+            "change_reason": ["ST"],
+            "is_st": [True],
+        }))
+
+        full = self.db.query_research_universe("2026-06-16", only_in_universe=False)
+        investable = self.db.query_research_universe("2026-06-16")
+
+        self.assertEqual(investable["ts_code"].tolist(), ["000005.SZ"])
+        reasons = dict(zip(full["ts_code"], full["exclude_reason"]))
+        self.assertEqual(reasons["000001.SZ"], "historical_st")
+        self.assertEqual(reasons["000002.SZ"], "suspended")
+        self.assertEqual(reasons["000003.SZ"], "delisted")
+        self.assertEqual(reasons["000004.SZ"], "invalid_ohlc")
+
+
+if __name__ == "__main__":
+    unittest.main()

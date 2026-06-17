@@ -1,0 +1,106 @@
+# =============================================================================
+# AI 量化数据流水线 — 全局配置
+# =============================================================================
+
+# --- 数据源 ---
+data_source:
+  primary: akshare          # 主数据源: akshare | eastmoney | tushare；Tushare Token 为空时自动退回 AKShare
+  tushare_token: ""          # Tushare Pro Token（空字符串=仅用AKShare）
+  # Tushare 积分 120+ 可获取全部基础数据
+  # 申请: https://tushare.pro
+
+# --- A股全市场股票池 ---
+stock_pool:
+  # 留空 = 全部A股（含北交所）
+  # 可选过滤: 按行业 ts_code 列表
+  include_exchanges:         # 包含的交易所
+    - SZSE                    # 深交所
+    - SSE                     # 上交所
+    # - BSE                   # 北交所（可选）
+  exclude_st:
+    enabled: true            # 自动剔除 ST / *ST
+  st_history:
+    enabled: true            # 有 Tushare Token 时采集名称变更/ST 历史
+    full_refresh_only: true  # 默认只在全量刷新时跑，避免每日增量过重
+    batch_size: 100
+    max_stocks_per_run: null # 留空=全量；调试可限制数量
+  exclude_ipo_within_days: 60  # 上市不足 N 天的次新股剔除
+
+# --- 并发采集 ---
+concurrency:
+  enabled: true              # 启用并发采集
+  max_workers: 2             # 东财限频，降到2线程防封IP
+  batch_size_for_upsert: 100 # 每采集N只股票批量写入一次数据库
+fetch:
+  market_data:
+    daily_kline: true        # 日K线
+    adj_factor: true         # 有 Tushare Token 时补充复权因子和前复权价
+    daily_basic: true        # 每日基本面指标（PE/PB/换手率等）
+  financial_data:
+    enabled: true            # 季度财务数据
+    batch_size: 100          # 每 N 只股票批量写入一次
+    max_stocks_per_run: null # 留空=全量；测试/调试可限制只跑部分股票
+    # 默认只在财务季报窗口（1/4/7/10月）自动拉取
+  # 资金流向（可选）
+  money_flow:
+    enabled: false
+  # 交易日历起止
+  start_date: "20260101"     # 只跑2026年数据
+  end_date: "today"          # "today" = 自动取当天
+
+# --- 数据存储 ---
+storage:
+  db_path: "./data/quant.duckdb"      # DuckDB 数据库文件路径
+  raw_dir: "./data/raw"               # 原始 CSV/Parquet 暂存
+  parquet_compression: zstd           # 压缩算法: snappy | zstd | lz4
+
+# --- 复权策略 ---
+adjust:
+  method: none              # 采集层主表统一保存未复权价格
+  # 策略说明:
+  #   hfq - 因子计算用（价格连续，无负值）
+  #   qfq - 回测用（贴近真实交易价格）
+  #   none - 实盘信号用（+除权日特殊处理）
+
+# --- 清洗参数 ---
+cleaning:
+  outlier_method: mad        # 离群值检测: mad | zscore | iqr（仅标记，不改写价格）
+  mad_threshold: 5.0         # MAD 倍数（默认 5，越大越宽松）
+  zscore_threshold: 3.0      # Z-Score 阈值（zscore 模式用）
+  iqr_multiplier: 1.5        # IQR 倍数（iqr 模式用）
+  max_daily_pct: 15.0        # 单日涨跌幅超过此值标记为异常
+  min_trading_days: 20       # 上市少于该交易日数的股票跳过因子计算
+
+# --- 交易日历 ---
+trade_calendar:
+  sse: true                  # 上交所
+  szse: true                 # 深交所
+  # 自动从 AKShare/Tushare 获取交易日历
+  # 节假日、调休日自动识别
+
+# --- 质量监控阈值 ---
+quality:
+  known_missing_fields:
+    - amount                 # 腾讯行情源天然缺失成交额
+    - adj_factor             # 无 Tushare Token 时天然缺失复权因子
+  alerts:
+    missing_data_ratio: 0.05        # 缺失率超过 5% 报警
+    extreme_stocks_ratio: 0.02      # 极端值占比超过 2% 报警
+    fetch_failure_retries: 3        # 采集失败重试次数
+  source_audit:
+    enabled: true                   # 腾讯 vs 第二数据源轻量抽样对账
+    secondary: sina                 # sina | eastmoney
+    sample_size: 10                 # 每次抽样股票数
+    lookback_days: 5                # 对比最近 N 天
+    tolerance_pct: 1.0              # 收盘价最大差异超过阈值标 warning
+  report:
+    save_raw: true                  # 保存原始质量报告 JSON
+    push_feishu: false              # 是否推送到飞书（通过 Hermes 转发）
+
+# --- 日志 ---
+logging:
+  level: INFO                # DEBUG | INFO | WARNING | ERROR
+  file: "./logs/pipeline.log"
+  max_size_mb: 50
+  backup_count: 7
+  format: "{time:YYYY-MM-DD HH:mm:ss} | {level:<7} | {name}:{function}:{line} | {message}"
