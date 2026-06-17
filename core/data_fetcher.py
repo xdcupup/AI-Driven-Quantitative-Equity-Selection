@@ -39,6 +39,7 @@ from loguru import logger
 
 from core.providers.eastmoney import EastMoneyClient
 from core.providers.rate_limit import EastMoneyLimiter
+from core.providers.tencent import TencentKlineClient
 
 
 # ============================================================================
@@ -192,6 +193,7 @@ class DataFetcher:
                 min_interval_sec=float(eastmoney_cfg.get("min_interval_sec", 1.0))
             )
         )
+        self._tencent_kline_client = TencentKlineClient()
         
         # 初始化数据源
         self._init_akshare()
@@ -769,104 +771,13 @@ class DataFetcher:
         不受系统代理和 curl_cffi 影响，比 Sina 和 East Money 更稳定。
         """
         self._rate_limit()
-        
-        import requests as std_requests
-        
-        # 判断交易所代码
-        if symbol.startswith(("0", "3")):
-            exchange = "sz"
-        elif symbol.startswith("6"):
-            exchange = "sh"
-        else:
-            return pd.DataFrame()
-        
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                          "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Referer": "https://gu.qq.com/",
-        }
-        
-        adjust_map = {
-            "none": ("", "day"),
-            "qfq": ("qfq", "qfqday"),
-            "hfq": ("hfq", "hfqday"),
-        }
-        fq_param, response_key = adjust_map.get(adjust_param, adjust_map["none"])
-
-        # 腾讯 API 不支持按日期查询，一次拉取足够多的数据再本地过滤
         try:
-            param = f"{exchange}{symbol},day,,,2000"
-            if fq_param:
-                param = f"{param},{fq_param}"
-                endpoint = "fqkline/get"
-            else:
-                endpoint = "kline/kline"
-            url = (
-                "https://web.ifzq.gtimg.cn/appstock/app/"
-                f"{endpoint}?param={param}"
+            client = getattr(self, "_tencent_kline_client", TencentKlineClient())
+            df = client.fetch_daily_kline(
+                symbol, start, end, adjust=adjust_param
             )
-            resp = std_requests.get(url, headers=headers, timeout=15,
-                                     proxies={"http": "", "https": ""})
-            if resp.status_code != 200:
-                return pd.DataFrame()
-            
-            data = resp.json()
-            if data.get("code") != 0:
-                return pd.DataFrame()
-            
-            # 解析 K-line 数据
-            quote_key = f"{exchange}{symbol}"
-            quote_data = data.get("data", {}).get(quote_key, {})
-            kline_raw = quote_data.get(response_key, [])
-            if not kline_raw and response_key != "day":
-                logger.warning(f"腾讯API未返回 {response_key} ({symbol})")
-            if not kline_raw:
-                return pd.DataFrame()
-            
-            rows = []
-            for item in kline_raw:
-                if len(item) < 6:
-                    continue
-                rows.append({
-                    "trade_date": item[0],
-                    "open": float(item[1]),
-                    "close": float(item[2]),
-                    "high": float(item[3]),
-                    "low": float(item[4]),
-                    "vol": float(item[5]) * 100,  # 腾讯的成交量单位是"手"，转成"股"
-                })
-            
-            if not rows:
-                return pd.DataFrame()
-            
-            df = pd.DataFrame(rows)
-            df["trade_date"] = pd.to_datetime(df["trade_date"])
-            df = df.sort_values("trade_date").reset_index(drop=True)
-            
-            # 计算涨跌幅
-            df["pct_chg"] = df["close"].pct_change() * 100
-            df["ts_code"] = f"{symbol}.{'SZ' if symbol.startswith(('0','3')) else 'SH' if symbol.startswith('6') else 'BJ'}"
-            
-            # 腾讯接口不返回成交额和独立复权因子，未知值必须保留为空
-            df["amount"] = float("nan")
-            df["adj_factor"] = float("nan")
-            df["price_type"] = adjust_param
-            df["flag_extreme"] = False
-            df["flag_suspended"] = False
-
-            if adjust_param == "none":
-                for col in ["open", "high", "low", "close"]:
-                    df[f"raw_{col}"] = df[col]
-            
-            # 过滤日期范围
-            start_dt = pd.Timestamp(start)
-            end_dt = pd.Timestamp(end)
-            df = df[(df["trade_date"] >= start_dt) & (df["trade_date"] <= end_dt)]
-            df = df.reset_index(drop=True)
-            
             logger.info(f"腾讯API: {symbol} ({len(df)} rows, {adjust_param})")
             return df
-            
         except Exception as e:
             logger.warning(f"腾讯API降级也失败 ({symbol}): {type(e).__name__}")
             return pd.DataFrame()
