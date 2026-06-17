@@ -37,6 +37,9 @@ from urllib.parse import urlencode
 import pandas as pd
 from loguru import logger
 
+from core.providers.eastmoney import EastMoneyClient
+from core.providers.rate_limit import EastMoneyLimiter
+
 
 # ============================================================================
 # 工具函数
@@ -183,6 +186,12 @@ class DataFetcher:
         self._tushare_pro = None
         self._tushare_token = config.get("data_source", {}).get("tushare_token", "")
         self._primary = config.get("data_source", {}).get("primary", "akshare")
+        eastmoney_cfg = config.get("providers", {}).get("eastmoney", {})
+        self._eastmoney_client = EastMoneyClient(
+            limiter=EastMoneyLimiter(
+                min_interval_sec=float(eastmoney_cfg.get("min_interval_sec", 1.0))
+            )
+        )
         
         # 初始化数据源
         self._init_akshare()
@@ -654,6 +663,19 @@ class DataFetcher:
         self, symbol: str, start: str, end: str, adjust: str
     ) -> pd.DataFrame:
         """用系统 curl 强制 IPv4 拉 East Money，避开 macOS 代理和 IPv6 断连。"""
+        client = getattr(self, "_eastmoney_client", None)
+        if client is not None:
+            try:
+                resp = client.get_kline(symbol, start, end, adjust=adjust, timeout=20)
+                if resp.status_code == 200 and resp.text:
+                    return self._parse_eastmoney_kline_payload(
+                        resp.text, symbol, adjust
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"East Money client 兜底失败 ({symbol}): {type(e).__name__}"
+                )
+
         market_code = "1" if symbol.startswith("6") else "0"
         adjust_map = {"none": "0", "qfq": "1", "hfq": "2"}
         params = {
@@ -694,44 +716,51 @@ class DataFetcher:
                     f"East Money curl 兜底失败 ({symbol}): {completed.stderr.strip()}"
                 )
                 return pd.DataFrame()
-            data = json.loads(completed.stdout)
-            klines = data.get("data", {}).get("klines", [])
-            if not klines:
-                return pd.DataFrame()
-
-            rows = []
-            for line in klines:
-                parts = line.split(",")
-                if len(parts) < 11:
-                    continue
-                rows.append({
-                    "trade_date": parts[0],
-                    "open": float(parts[1]),
-                    "close": float(parts[2]),
-                    "high": float(parts[3]),
-                    "low": float(parts[4]),
-                    "vol": float(parts[5]) * 100,
-                    "amount": float(parts[6]),
-                    "pct_chg": float(parts[8]),
-                })
-            if not rows:
-                return pd.DataFrame()
-
-            df = pd.DataFrame(rows)
-            df["trade_date"] = pd.to_datetime(df["trade_date"])
-            suffix = "SZ" if symbol.startswith(("0", "3")) else "SH" if symbol.startswith("6") else "BJ"
-            df["ts_code"] = f"{symbol}.{suffix}"
-            if adjust == "none":
-                for col in ["open", "high", "low", "close"]:
-                    df[f"raw_{col}"] = df[col]
-            df["adj_factor"] = float("nan")
-            df["price_type"] = adjust
-            df["flag_extreme"] = False
-            df["flag_suspended"] = False
-            return df.sort_values("trade_date").reset_index(drop=True)
+            return self._parse_eastmoney_kline_payload(
+                completed.stdout, symbol, adjust
+            )
         except Exception as e:
             logger.warning(f"East Money curl 兜底异常 ({symbol}): {type(e).__name__}")
             return pd.DataFrame()
+
+    def _parse_eastmoney_kline_payload(
+        self, payload: str, symbol: str, adjust: str
+    ) -> pd.DataFrame:
+        data = json.loads(payload)
+        klines = data.get("data", {}).get("klines", [])
+        if not klines:
+            return pd.DataFrame()
+
+        rows = []
+        for line in klines:
+            parts = line.split(",")
+            if len(parts) < 11:
+                continue
+            rows.append({
+                "trade_date": parts[0],
+                "open": float(parts[1]),
+                "close": float(parts[2]),
+                "high": float(parts[3]),
+                "low": float(parts[4]),
+                "vol": float(parts[5]) * 100,
+                "amount": float(parts[6]),
+                "pct_chg": float(parts[8]),
+            })
+        if not rows:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(rows)
+        df["trade_date"] = pd.to_datetime(df["trade_date"])
+        suffix = "SZ" if symbol.startswith(("0", "3")) else "SH" if symbol.startswith("6") else "BJ"
+        df["ts_code"] = f"{symbol}.{suffix}"
+        if adjust == "none":
+            for col in ["open", "high", "low", "close"]:
+                df[f"raw_{col}"] = df[col]
+        df["adj_factor"] = float("nan")
+        df["price_type"] = adjust
+        df["flag_extreme"] = False
+        df["flag_suspended"] = False
+        return df.sort_values("trade_date").reset_index(drop=True)
     
     def _fetch_kline_tencent(self, symbol: str, start: str, end: str, adjust_param: str = "none") -> pd.DataFrame:
         """降级方案：用 requests + 腾讯财经 API 获取日 K 线。

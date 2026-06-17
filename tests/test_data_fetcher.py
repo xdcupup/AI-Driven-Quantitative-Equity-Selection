@@ -233,6 +233,17 @@ class DataFetcherHelpersTest(unittest.TestCase):
         self.assertFalse(result.empty)
         self.assertEqual(calls, [("eastmoney", "000001", "20260615", "20260616", "none")])
 
+    def test_init_creates_eastmoney_client_with_configured_interval(self):
+        config = {
+            "data_source": {"primary": "akshare", "tushare_token": ""},
+            "providers": {"eastmoney": {"min_interval_sec": 1.7}},
+        }
+
+        with patch.object(DataFetcher, "_init_akshare", lambda self: setattr(self, "_ak", None)):
+            fetcher = DataFetcher(config)
+
+        self.assertEqual(fetcher._eastmoney_client.limiter.min_interval_sec, 1.7)
+
     def test_tushare_name_history_marks_st_periods(self):
         class FakePro:
             def namechange(self, ts_code, fields):
