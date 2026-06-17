@@ -41,6 +41,7 @@ from core.providers.eastmoney import EastMoneyClient
 from core.providers.rate_limit import EastMoneyLimiter
 from core.providers.sina import SinaKlineClient
 from core.providers.tencent import TencentKlineClient
+from core.providers.tushare import TushareClient
 
 
 # ============================================================================
@@ -186,6 +187,7 @@ class DataFetcher:
         """
         self.config = config
         self._tushare_pro = None
+        self._tushare_client = None
         self._tushare_token = config.get("data_source", {}).get("tushare_token", "")
         self._primary = config.get("data_source", {}).get("primary", "akshare")
         eastmoney_cfg = config.get("providers", {}).get("eastmoney", {})
@@ -234,6 +236,10 @@ class DataFetcher:
             import tushare as ts
             ts.set_token(self._tushare_token)
             self._tushare_pro = ts.pro_api()
+            self._tushare_client = TushareClient(
+                self._tushare_pro,
+                rate_limit=self._rate_limit,
+            )
             logger.info("Tushare Pro 数据源初始化成功")
         except ImportError:
             logger.warning("Tushare 未安装，仅使用 AKShare")
@@ -241,6 +247,14 @@ class DataFetcher:
         except Exception as e:
             logger.warning(f"Tushare 初始化失败: {e}，仅使用 AKShare")
             self._tushare_pro = None
+            self._tushare_client = None
+
+    def _get_tushare_client(self):
+        client = getattr(self, "_tushare_client", None)
+        if client is None and getattr(self, "_tushare_pro", None) is not None:
+            client = TushareClient(self._tushare_pro, rate_limit=self._rate_limit)
+            self._tushare_client = client
+        return client
 
     # ========================================================================
     # 公开接口
@@ -865,56 +879,19 @@ class DataFetcher:
     @retry_with_backoff(max_retries=3)
     def _fetch_stock_list_tushare(self) -> pd.DataFrame:
         """Tushare: 获取股票列表（含已退市）"""
-        self._rate_limit()
-        fields = (
-            "ts_code,symbol,name,area,industry,list_date,delist_date,"
-            "market,exchange"
-        )
-        
-        # 上市股票
-        listed = self._tushare_pro.stock_basic(
-            exchange="", list_status="L",
-            fields=fields,
-        )
-        
-        # 退市股票（防幸存者偏差！）
-        delisted = self._tushare_pro.stock_basic(
-            exchange="", list_status="D",
-            fields=fields,
-        )
-        
-        if listed.empty and delisted.empty:
+        client = self._get_tushare_client()
+        if client is None:
             return pd.DataFrame()
-        
-        df = pd.concat([listed, delisted], ignore_index=True)
-        df["list_status"] = df["ts_code"].apply(
-            lambda x: "D" if x in delisted["ts_code"].values else "L"
-        )
-        for col in ["list_date", "delist_date"]:
-            if col not in df.columns:
-                df[col] = pd.NaT
-            df[col] = pd.to_datetime(df[col], errors="coerce")
-        
-        return df
+        return client.fetch_stock_list()
 
     @retry_with_backoff(max_retries=3)
     def _fetch_kline_tushare(self, ts_code: str, start: str, end: str) -> pd.DataFrame:
         """Tushare: 获取日 K 线"""
-        self._rate_limit()
         try:
-            df = self._tushare_pro.daily(
-                ts_code=ts_code,
-                start_date=start,
-                end_date=end,
-            )
-            if df.empty:
-                return df
-            if "amount" in df.columns:
-                df["amount"] = pd.to_numeric(df["amount"], errors="coerce") * 1000
-            
-            df["trade_date"] = pd.to_datetime(df["trade_date"])
-            df = df.sort_values("trade_date").reset_index(drop=True)
-            return df
+            client = self._get_tushare_client()
+            if client is None:
+                return pd.DataFrame()
+            return client.fetch_daily_kline(ts_code, start, end)
         except Exception as e:
             logger.error(f"Tushare 获取 {ts_code} 日K线失败: {e}")
             return pd.DataFrame()
@@ -922,13 +899,11 @@ class DataFetcher:
     @retry_with_backoff(max_retries=3)
     def _fetch_adj_tushare(self, ts_code: str) -> pd.DataFrame:
         """Tushare: 获取复权因子"""
-        self._rate_limit()
         try:
-            df = self._tushare_pro.adj_factor(ts_code=ts_code)
-            if df.empty:
-                return df
-            df["trade_date"] = pd.to_datetime(df["trade_date"])
-            return df
+            client = self._get_tushare_client()
+            if client is None:
+                return pd.DataFrame()
+            return client.fetch_adj_factor(ts_code)
         except Exception as e:
             logger.error(f"Tushare 获取 {ts_code} 复权因子失败: {e}")
             return pd.DataFrame()
@@ -936,17 +911,11 @@ class DataFetcher:
     @retry_with_backoff(max_retries=3)
     def _fetch_calendar_tushare(self, year: int) -> pd.DataFrame:
         """Tushare: 获取交易日历"""
-        self._rate_limit()
         try:
-            df = self._tushare_pro.trade_cal(
-                start_date=f"{year}0101",
-                end_date=f"{year}1231",
-            )
-            if df.empty:
-                return df
-            df["trade_date"] = pd.to_datetime(df["cal_date"])
-            df["is_open"] = df["is_open"].astype(int)
-            return df
+            client = self._get_tushare_client()
+            if client is None:
+                return pd.DataFrame()
+            return client.fetch_trade_calendar(year)
         except Exception as e:
             logger.error(f"Tushare 获取交易日历失败: {e}")
             return pd.DataFrame()
@@ -954,16 +923,11 @@ class DataFetcher:
     @retry_with_backoff(max_retries=3)
     def _fetch_daily_basic_tushare(self, trade_date: str) -> pd.DataFrame:
         """Tushare: 获取每日基本面"""
-        self._rate_limit()
         try:
-            df = self._tushare_pro.daily_basic(
-                trade_date=trade_date,
-                fields="ts_code,trade_date,pe,pb,turnover_rate,volume_ratio,circ_mv,total_mv"
-            )
-            if df.empty:
-                return df
-            df["trade_date"] = pd.to_datetime(df["trade_date"])
-            return df
+            client = self._get_tushare_client()
+            if client is None:
+                return pd.DataFrame()
+            return client.fetch_daily_basic(trade_date)
         except Exception as e:
             logger.error(f"Tushare 获取每日基本面失败: {e}")
             return pd.DataFrame()
@@ -971,33 +935,11 @@ class DataFetcher:
     @retry_with_backoff(max_retries=3)
     def _fetch_financial_tushare(self, ts_code: str, start: str, end: str) -> pd.DataFrame:
         """Tushare: 获取财务指标（用 ann_date 对齐！）"""
-        self._rate_limit()
         try:
-            # fina_indicator 包含最常用的财务指标
-            df = self._tushare_pro.fina_indicator(
-                ts_code=ts_code,
-                start_date=start,
-                end_date=end,
-                fields=(
-                    "ts_code,ann_date,end_date,eps,bps,roe,roe_waa,"
-                    "profit_dedt,ocfps,cfps,free_cashflow,"
-                    "profit_yoy,revenue_yoy,op_yoy,dt_debt_to_assets,"
-                    "gross_margin,net_margin"
-                ),
-            )
-            if df.empty:
-                return df
-            
-            df["ann_date"] = pd.to_datetime(df["ann_date"])
-            df["end_date"] = pd.to_datetime(df["end_date"])
-            df = df.rename(
-                columns={"dt_debt_to_assets": "dt_debt_ratio"}
-            )
-            
-            # 关键：按公告日期排序
-            df = df.sort_values("ann_date").reset_index(drop=True)
-            
-            return df
+            client = self._get_tushare_client()
+            if client is None:
+                return pd.DataFrame()
+            return client.fetch_financial_indicators(ts_code, start, end)
         except Exception as e:
             logger.error(f"Tushare 获取 {ts_code} 财务数据失败: {e}")
             return pd.DataFrame()
@@ -1005,22 +947,11 @@ class DataFetcher:
     @retry_with_backoff(max_retries=3)
     def _fetch_name_history_tushare(self, ts_code: str) -> pd.DataFrame:
         """Tushare: 获取名称变更历史，用名称和变更原因标记 ST 区间。"""
-        self._rate_limit()
         try:
-            df = self._tushare_pro.namechange(
-                ts_code=ts_code,
-                fields="ts_code,name,start_date,end_date,change_reason",
-            )
-            if df.empty:
-                return df
-
-            for col in ["start_date", "end_date"]:
-                df[col] = pd.to_datetime(df[col], errors="coerce")
-            upper_name = df["name"].fillna("").str.upper()
-            upper_reason = df["change_reason"].fillna("").str.upper()
-            df["is_st"] = upper_name.str.contains("ST") | upper_reason.str.contains("ST")
-            df = df.sort_values("start_date").reset_index(drop=True)
-            return df
+            client = self._get_tushare_client()
+            if client is None:
+                return pd.DataFrame()
+            return client.fetch_name_history(ts_code)
         except Exception as e:
             logger.error(f"Tushare 获取 {ts_code} 名称历史失败: {e}")
             return pd.DataFrame()

@@ -9,6 +9,7 @@ from core.providers.eastmoney import EastMoneyClient
 from core.providers.rate_limit import EastMoneyLimiter
 from core.providers.sina import SinaKlineClient
 from core.providers.tencent import TencentKlineClient
+from core.providers.tushare import TushareClient
 
 
 class ProviderBaseTest(unittest.TestCase):
@@ -124,6 +125,96 @@ class SinaProviderTest(unittest.TestCase):
         args, kwargs = session.get.call_args
         self.assertIn("quotes.sina.cn", args[0])
         self.assertEqual(kwargs["params"]["symbol"], "sz000001")
+
+
+class TushareProviderTest(unittest.TestCase):
+    def test_stock_list_combines_listed_and_delisted_with_dates(self):
+        class FakePro:
+            def stock_basic(self, exchange, list_status, fields):
+                if list_status == "L":
+                    return pd.DataFrame({
+                        "ts_code": ["000001.SZ"],
+                        "symbol": ["000001"],
+                        "name": ["平安银行"],
+                        "area": ["深圳"],
+                        "industry": ["银行"],
+                        "list_date": ["19910403"],
+                        "delist_date": [None],
+                        "market": ["主板"],
+                        "exchange": ["SZSE"],
+                    })
+                return pd.DataFrame({
+                    "ts_code": ["000003.SZ"],
+                    "symbol": ["000003"],
+                    "name": ["PT金田A"],
+                    "area": ["深圳"],
+                    "industry": ["综合"],
+                    "list_date": ["19910703"],
+                    "delist_date": ["20020614"],
+                    "market": ["主板"],
+                    "exchange": ["SZSE"],
+                })
+
+        client = TushareClient(FakePro(), rate_limit=lambda: None)
+
+        result = client.fetch_stock_list()
+
+        self.assertEqual(
+            result[["ts_code", "list_status"]].values.tolist(),
+            [["000001.SZ", "L"], ["000003.SZ", "D"]],
+        )
+        self.assertEqual(
+            str(result.loc[result["ts_code"] == "000003.SZ", "delist_date"].iloc[0].date()),
+            "2002-06-14",
+        )
+
+    def test_daily_kline_normalizes_amount_to_yuan_and_sorts_dates(self):
+        class FakePro:
+            def daily(self, ts_code, start_date, end_date):
+                return pd.DataFrame({
+                    "ts_code": [ts_code, ts_code],
+                    "trade_date": ["20260616", "20260615"],
+                    "open": [10.0, 9.0],
+                    "high": [11.0, 10.0],
+                    "low": [9.5, 8.5],
+                    "close": [10.5, 9.5],
+                    "vol": [100.0, 90.0],
+                    "amount": [12.3, 9.8],
+                })
+
+        client = TushareClient(FakePro(), rate_limit=lambda: None)
+
+        result = client.fetch_daily_kline("000001.SZ", "20260615", "20260616")
+
+        self.assertEqual(
+            result["trade_date"].dt.strftime("%Y%m%d").tolist(),
+            ["20260615", "20260616"],
+        )
+        self.assertEqual(result.iloc[1]["amount"], 12300.0)
+
+    def test_financial_indicators_sort_by_ann_date_and_rename_debt_ratio(self):
+        class FakePro:
+            def fina_indicator(self, ts_code, start_date, end_date, fields):
+                return pd.DataFrame({
+                    "ts_code": [ts_code, ts_code],
+                    "ann_date": ["20260430", "20260331"],
+                    "end_date": ["20260331", "20251231"],
+                    "eps": [0.2, 0.8],
+                    "dt_debt_to_assets": [41.2, 39.8],
+                })
+
+        client = TushareClient(FakePro(), rate_limit=lambda: None)
+
+        result = client.fetch_financial_indicators(
+            "000001.SZ", "20260101", "20260616"
+        )
+
+        self.assertEqual(
+            result["ann_date"].dt.strftime("%Y%m%d").tolist(),
+            ["20260331", "20260430"],
+        )
+        self.assertIn("dt_debt_ratio", result.columns)
+        self.assertNotIn("dt_debt_to_assets", result.columns)
 
 
 if __name__ == "__main__":
