@@ -6,6 +6,7 @@ import pandas as pd
 from core.astock.market.tencent_quote import TencentQuoteClient
 from core.astock.market.baidu_kline import BaiduKlineClient
 from core.astock.market.mootdx_client import MootdxMarketClient
+from core.astock.market.trade_calendar import TencentTradeCalendarClient
 
 
 class TencentQuoteClientTest(unittest.TestCase):
@@ -398,6 +399,60 @@ class MootdxMarketClientTest(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result.iloc[0]["trade_date"], pd.Timestamp("2026-06-16"))
         self.assertStableColumns(result)
+
+
+class TencentTradeCalendarClientTest(unittest.TestCase):
+    EXPECTED_COLUMNS = [
+        "exchange",
+        "trade_date",
+        "is_open",
+        "pretrade_date",
+        "source",
+    ]
+
+    def test_parses_index_kline_dates_as_open_trading_days(self):
+        session = Mock()
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "code": 0,
+            "data": {
+                "sh000001": {
+                    "day": [
+                        ["2026-02-13", "1", "1", "1", "1", "1"],
+                        ["2026-02-23", "1", "1", "1", "1", "1"],
+                        ["2026-02-24", "1", "1", "1", "1", "1"],
+                    ]
+                }
+            },
+        }
+        session.get.return_value = response
+        client = TencentTradeCalendarClient(session=session)
+
+        result = client.fetch_trade_calendar(2026)
+
+        self.assertEqual(list(result.columns), self.EXPECTED_COLUMNS)
+        self.assertEqual(
+            result["trade_date"].dt.strftime("%Y-%m-%d").tolist(),
+            ["2026-02-13", "2026-02-23", "2026-02-24"],
+        )
+        self.assertEqual(result["is_open"].tolist(), [1, 1, 1])
+        self.assertEqual(result.iloc[0]["source"], "tencent_index_kline")
+        self.assertTrue(pd.isna(result.iloc[0]["pretrade_date"]))
+        self.assertEqual(result.iloc[1]["pretrade_date"], pd.Timestamp("2026-02-13"))
+
+    def test_bad_response_returns_business_day_fallback(self):
+        session = Mock()
+        response = Mock(status_code=500)
+        session.get.return_value = response
+        client = TencentTradeCalendarClient(session=session)
+
+        result = client.fetch_trade_calendar(2026)
+
+        self.assertEqual(list(result.columns), self.EXPECTED_COLUMNS)
+        self.assertFalse(result.empty)
+        self.assertEqual(result.iloc[0]["source"], "business_day_fallback")
+        self.assertTrue((result["trade_date"].dt.year == 2026).all())
+        self.assertEqual(result["is_open"].unique().tolist(), [1])
 
 
 if __name__ == "__main__":

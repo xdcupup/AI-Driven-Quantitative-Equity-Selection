@@ -95,6 +95,22 @@ class AStockDataGatewayTest(unittest.TestCase):
         self.assertTrue(result.empty)
         tencent.fetch_quotes.assert_called_once_with(["000001.SZ"])
 
+    def test_trade_calendar_delegates_to_calendar_client(self):
+        calendar = Mock()
+        calendar.fetch_trade_calendar.return_value = pd.DataFrame({
+            "exchange": ["SSE"],
+            "trade_date": pd.to_datetime(["2026-02-13"]),
+            "is_open": [1],
+            "pretrade_date": [pd.NaT],
+            "source": ["tencent_index_kline"],
+        })
+        gateway = AStockDataGateway(calendar_client=calendar)
+
+        result = gateway.fetch_trade_calendar(2026)
+
+        calendar.fetch_trade_calendar.assert_called_once_with(2026)
+        self.assertEqual(result.iloc[0]["source"], "tencent_index_kline")
+
 
 if __name__ == "__main__":
     unittest.main()

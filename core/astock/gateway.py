@@ -11,6 +11,7 @@ from core.astock.eastmoney.client import EastMoneyDataClient
 from core.astock.market.baidu_kline import BaiduKlineClient
 from core.astock.market.mootdx_client import MootdxMarketClient
 from core.astock.market.tencent_quote import TencentQuoteClient
+from core.astock.market.trade_calendar import TencentTradeCalendarClient
 from core.astock.symbols import normalize_code
 
 
@@ -68,12 +69,14 @@ class AStockDataGateway:
         tencent_client: TencentQuoteClient | None = None,
         baidu_client: BaiduKlineClient | None = None,
         eastmoney_client: EastMoneyDataClient | None = None,
+        calendar_client: TencentTradeCalendarClient | None = None,
     ) -> None:
         self.config = config or {}
         self.mootdx = mootdx_client or MootdxMarketClient()
         self.tencent = tencent_client or TencentQuoteClient()
         self.baidu = baidu_client or BaiduKlineClient()
         self.eastmoney = eastmoney_client or EastMoneyDataClient()
+        self.calendar = calendar_client or TencentTradeCalendarClient()
         self._tushare_pro = None
 
     def fetch_daily_kline(
@@ -138,13 +141,7 @@ class AStockDataGateway:
         return self._stock_list_from_mootdx()
 
     def fetch_trade_calendar(self, year: int) -> pd.DataFrame:
-        dates = pd.bdate_range(f"{year}-01-01", f"{year}-12-31")
-        return pd.DataFrame({
-            "exchange": "SSE",
-            "trade_date": dates,
-            "is_open": 1,
-            "pretrade_date": pd.Series(dates).shift(1),
-        })
+        return self.calendar.fetch_trade_calendar(year)
 
     def fetch_adj_factor(self, ts_code: str) -> pd.DataFrame:
         return pd.DataFrame(columns=["ts_code", "trade_date", "adj_factor"])
