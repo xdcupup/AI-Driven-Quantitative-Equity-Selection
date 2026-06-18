@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 
 from core.astock.eastmoney.client import EastMoneyDataClient
+from core.astock.fundamental.mootdx_f10 import MootdxF10Client
 from core.astock.fundamental.mootdx_finance import MootdxFinanceClient
 from core.astock.market.baidu_kline import BaiduKlineClient
 from core.astock.market.mootdx_client import MootdxMarketClient
@@ -73,6 +74,7 @@ class AStockDataGateway:
         calendar_client: TencentTradeCalendarClient | None = None,
         stock_list_client: MootdxStockListClient | None = None,
         finance_client: MootdxFinanceClient | None = None,
+        f10_client: MootdxF10Client | None = None,
     ) -> None:
         self.config = config or {}
         self.mootdx = mootdx_client or MootdxMarketClient()
@@ -82,6 +84,7 @@ class AStockDataGateway:
         self.calendar = calendar_client or TencentTradeCalendarClient()
         self.stock_list = stock_list_client or MootdxStockListClient()
         self.finance = finance_client or MootdxFinanceClient()
+        self.f10 = f10_client or MootdxF10Client()
         self._tushare_pro = None
         self.supports_daily_basic = True
         self.supports_financial_indicators = True
@@ -161,6 +164,12 @@ class AStockDataGateway:
     def fetch_stock_name_history(self, ts_code: str) -> pd.DataFrame:
         return pd.DataFrame()
 
+    def fetch_f10_categories(self, ts_code: str) -> pd.DataFrame:
+        return self.f10.fetch_categories(ts_code)
+
+    def fetch_f10_section(self, ts_code: str, section: str) -> dict[str, Any]:
+        return self.f10.fetch_section(ts_code, section)
+
     def compare_market_sources(
         self,
         ts_code: str,
@@ -217,7 +226,7 @@ class AStockDataGateway:
                 "ts_code": symbol.ts_code,
                 "symbol": symbol.symbol,
                 "name": symbol.ts_code,
-                "exchange": symbol.exchange,
+                "exchange": symbol.exchange_suffix,
                 "area": None,
                 "industry": None,
                 "list_status": "L",

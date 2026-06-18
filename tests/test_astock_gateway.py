@@ -132,6 +132,21 @@ class AStockDataGatewayTest(unittest.TestCase):
         stock_list.fetch_stock_list.assert_called_once_with()
         self.assertEqual(result.iloc[0]["source"], "mootdx")
 
+    def test_stock_list_uses_configured_codes_before_client(self):
+        stock_list = Mock()
+        gateway = AStockDataGateway(
+            config={"stock_pool": {"codes": ["000001.SZ", "600519.SH"]}},
+            stock_list_client=stock_list,
+        )
+
+        result = gateway.fetch_stock_list()
+
+        stock_list.fetch_stock_list.assert_not_called()
+        self.assertEqual(
+            result[["ts_code", "symbol", "exchange"]].values.tolist(),
+            [["000001.SZ", "000001", "SZ"], ["600519.SH", "600519", "SH"]],
+        )
+
     def test_financial_indicators_delegates_to_finance_client(self):
         finance = Mock()
         finance.fetch_financial_indicators.return_value = pd.DataFrame({
@@ -150,6 +165,33 @@ class AStockDataGatewayTest(unittest.TestCase):
             "000001.SZ", "20260101", "20261231"
         )
         self.assertEqual(result.iloc[0]["eps"], 0.2)
+
+    def test_f10_methods_delegate_to_f10_client(self):
+        f10 = Mock()
+        f10.fetch_categories.return_value = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "name": ["公司概况"],
+            "filename": ["000001.txt"],
+            "start": [0],
+            "length": [100],
+            "source": ["mootdx_f10"],
+        })
+        f10.fetch_section.return_value = {
+            "ts_code": "000001.SZ",
+            "section": "公司概况",
+            "content": "平安银行",
+            "source": "mootdx_f10",
+            "error": None,
+        }
+        gateway = AStockDataGateway(f10_client=f10)
+
+        categories = gateway.fetch_f10_categories("000001.SZ")
+        section = gateway.fetch_f10_section("000001.SZ", "公司概况")
+
+        f10.fetch_categories.assert_called_once_with("000001.SZ")
+        f10.fetch_section.assert_called_once_with("000001.SZ", "公司概况")
+        self.assertEqual(categories.iloc[0]["name"], "公司概况")
+        self.assertEqual(section["content"], "平安银行")
 
 
 if __name__ == "__main__":
