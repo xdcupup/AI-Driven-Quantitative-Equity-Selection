@@ -4,6 +4,7 @@ from unittest.mock import Mock
 import pandas as pd
 
 from core.astock.market.tencent_quote import TencentQuoteClient
+from core.astock.market.baidu_kline import BaiduKlineClient
 
 
 class TencentQuoteClientTest(unittest.TestCase):
@@ -109,6 +110,58 @@ class TencentQuoteClientTest(unittest.TestCase):
         row = result.iloc[0]
         self.assertEqual(row["ts_code"], "000001.SZ")
         self.assertEqual(row["pe_static"], 11.20)
+
+
+class BaiduKlineClientTest(unittest.TestCase):
+    def test_parse_kline_accepts_string_result_code_and_ma_fields(self):
+        session = Mock()
+        response = Mock()
+        response.json.return_value = {
+            "ResultCode": "0",
+            "Result": {
+                "newMarketData": {
+                    "keys": [
+                        "time", "open", "close", "high", "low",
+                        "volume", "amount", "ma5avgprice",
+                        "ma10avgprice", "ma20avgprice",
+                    ],
+                    "marketData": (
+                        "20260615,11.20,11.10,11.30,11.00,1000,111000,10.9,10.8,10.7;"
+                        "20260616,11.10,10.94,11.12,10.91,1200,131280,11.0,10.9,10.8"
+                    ),
+                }
+            },
+        }
+        session.get.return_value = response
+        client = BaiduKlineClient(session=session)
+
+        result = client.fetch_kline_with_ma("000001", start_time="")
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result.iloc[0]["ts_code"], "000001.SZ")
+        self.assertEqual(result.iloc[1]["close"], 10.94)
+        self.assertEqual(result.iloc[1]["ma20"], 10.8)
+        self.assertEqual(result.iloc[1]["source"], "baidu")
+
+    def test_parse_kline_accepts_integer_result_code(self):
+        session = Mock()
+        response = Mock()
+        response.json.return_value = {
+            "ResultCode": 0,
+            "Result": {
+                "newMarketData": {
+                    "keys": ["time", "open", "close", "high", "low", "volume", "amount"],
+                    "marketData": "20260616,11.10,10.94,11.12,10.91,1200,131280",
+                }
+            },
+        }
+        session.get.return_value = response
+        client = BaiduKlineClient(session=session)
+
+        result = client.fetch_kline_with_ma("000001")
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0]["amount"], 131280.0)
 
 
 if __name__ == "__main__":
