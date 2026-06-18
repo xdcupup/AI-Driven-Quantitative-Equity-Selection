@@ -4,10 +4,11 @@
 
 # --- 数据源 ---
 data_source:
-  primary: akshare          # 主数据源: akshare | eastmoney | tushare；Tushare Token 为空时自动退回 AKShare
-  tushare_token: ""          # Tushare Pro Token（空字符串=仅用AKShare）
-  # Tushare 积分 120+ 可获取全部基础数据
-  # 申请: https://tushare.pro
+  engine: astock             # 新直连数据层：不使用 AKShare / Tushare
+  market_primary: mootdx     # 日K线主源：通达信 TCP
+  market_fallback: baidu     # 日K线兜底：百度股市通
+  quote_source: tencent      # 估值/换手率/市值/涨跌停：腾讯财经
+  eastmoney_usage: unique_only # 东财只用于独有数据，并通过 em_get 限流
 
 # --- A股全市场股票池 ---
 stock_pool:
@@ -20,7 +21,7 @@ stock_pool:
   exclude_st:
     enabled: true            # 自动剔除 ST / *ST
   st_history:
-    enabled: true            # 有 Tushare Token 时采集名称变更/ST 历史
+    enabled: false           # 新架构首阶段不走 Tushare 名称变更/ST 历史
     full_refresh_only: true  # 默认只在全量刷新时跑，避免每日增量过重
     batch_size: 100
     max_stocks_per_run: null # 留空=全量；调试可限制数量
@@ -29,15 +30,15 @@ stock_pool:
 # --- 并发采集 ---
 concurrency:
   enabled: true              # 启用并发采集
-  max_workers: 2             # 东财限频，降到2线程防封IP
+  max_workers: 2             # mootdx/百度行情并发，先保守运行
   batch_size_for_upsert: 100 # 每采集N只股票批量写入一次数据库
 fetch:
   market_data:
     daily_kline: true        # 日K线
-    adj_factor: true         # 有 Tushare Token 时补充复权因子和前复权价
+    adj_factor: false        # 新架构首阶段先保存未复权价格
     daily_basic: true        # 每日基本面指标（PE/PB/换手率等）
   financial_data:
-    enabled: true            # 季度财务数据
+    enabled: false           # 后续接 mootdx finance / 新浪三表
     batch_size: 100          # 每 N 只股票批量写入一次
     max_stocks_per_run: null # 留空=全量；测试/调试可限制只跑部分股票
     # 默认只在财务季报窗口（1/4/7/10月）自动拉取
@@ -75,21 +76,19 @@ cleaning:
 trade_calendar:
   sse: true                  # 上交所
   szse: true                 # 深交所
-  # 自动从 AKShare/Tushare 获取交易日历
-  # 节假日、调休日自动识别
+  # 新网关首阶段使用工作日近似交易日历；后续接专用交易日历源
 
 # --- 质量监控阈值 ---
 quality:
   known_missing_fields:
-    - amount                 # 腾讯行情源天然缺失成交额
-    - adj_factor             # 无 Tushare Token 时天然缺失复权因子
+    - adj_factor             # 首阶段未接复权因子源
   alerts:
     missing_data_ratio: 0.05        # 缺失率超过 5% 报警
     extreme_stocks_ratio: 0.02      # 极端值占比超过 2% 报警
     fetch_failure_retries: 3        # 采集失败重试次数
   source_audit:
-    enabled: true                   # 腾讯 vs 第二数据源轻量抽样对账
-    secondary: sina                 # sina | eastmoney
+    enabled: true                   # 主行情 vs 第二数据源轻量抽样对账
+    secondary: baidu                # baidu
     sample_size: 10                 # 每次抽样股票数
     lookback_days: 5                # 对比最近 N 天
     tolerance_pct: 1.0              # 收盘价最大差异超过阈值标 warning

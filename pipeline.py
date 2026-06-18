@@ -16,7 +16,6 @@ AI 量化数据流水线 — 主入口
   8. 推送: 输出到控制台 / 飞书
 
 环境变量:
-  TUSHARE_TOKEN: Tushare Pro Token（可选，配置优先）
   PIPELINE_CONFIG: 配置文件路径（默认 ./config.yaml）
 
 返回码:
@@ -85,11 +84,6 @@ def load_config(config_path: str = None) -> dict:
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
     
-    # 环境变量覆盖
-    tushare_token = os.environ.get("TUSHARE_TOKEN")
-    if tushare_token:
-        config.setdefault("data_source", {})["tushare_token"] = tushare_token
-    
     # 解析路径（相对于项目根）
     root = os.path.dirname(config_path)
     for key in ["db_path", "raw_dir", "file"]:
@@ -145,6 +139,18 @@ def init_logging(config: dict):
     logger.info(f"日志系统初始化: level={level}, file={log_file}")
 
 
+def select_fetcher_class(config: dict):
+    """Select the pipeline-facing data source implementation."""
+    source_engine = config.get("data_source", {}).get("engine", "legacy")
+    if source_engine == "astock":
+        from core.astock.gateway import AStockDataGateway
+
+        return AStockDataGateway
+    from core.data_fetcher import DataFetcher
+
+    return DataFetcher
+
+
 # ============================================================================
 # 核心流水线
 # ============================================================================
@@ -161,13 +167,14 @@ class Pipeline:
         self.start_time = time.time()
         
         # 延迟导入（让错误提示更明确）
-        from core.data_fetcher import DataFetcher, build_stock_code_set
+        from core.data_fetcher import build_stock_code_set
         from core.data_cleaner import DataCleaner
         from core.data_cleaner import build_trade_calendar as _build_trade_calendar
         from core.data_storage import QuantDB
         from core.data_quality import QualityMonitor
         
-        self.fetcher = DataFetcher(config)
+        FetcherClass = select_fetcher_class(config)
+        self.fetcher = FetcherClass(config)
         self.cleaner = DataCleaner(config)
         self._build_stock_code_set = build_stock_code_set
         self._build_trade_calendar = _build_trade_calendar

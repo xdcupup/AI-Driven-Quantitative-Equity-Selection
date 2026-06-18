@@ -8,7 +8,7 @@
 # 前置条件:
 #   - Python 3.11+ venv 已创建
 #   - 依赖已安装 (pip install -r requirements.txt)
-#   - 网络可访问 AKShare 数据源
+#   - 网络可访问 mootdx / 腾讯 / 百度直连数据源
 # =============================================================================
 
 set -euo pipefail
@@ -45,8 +45,8 @@ fi
 source "$VENV_PATH/bin/activate"
 
 # --- 检查依赖 ---
-python3 -c "import akshare" 2>/dev/null || {
-    echo "❌ AKShare 未安装，尝试安装依赖..."
+python3 -c "import mootdx" 2>/dev/null || {
+    echo "❌ mootdx 未安装，尝试安装依赖..."
     pip install -r "$PROJECT_DIR/requirements.txt" 2>&1
 }
 

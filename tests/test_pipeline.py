@@ -213,5 +213,16 @@ class PipelineResearchDataTest(unittest.TestCase):
         self.assertEqual(len(pipeline.db.audit_batches[0]), 1)
 
 
+class PipelineSourceSelectionTest(unittest.TestCase):
+    def test_select_fetcher_class_returns_astock_gateway_when_configured(self):
+        from pipeline import select_fetcher_class
+        from core.astock.gateway import AStockDataGateway
+
+        self.assertIs(
+            select_fetcher_class({"data_source": {"engine": "astock"}}),
+            AStockDataGateway,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

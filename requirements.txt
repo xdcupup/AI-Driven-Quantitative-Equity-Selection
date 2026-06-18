@@ -2,9 +2,9 @@
 # Python 3.11+
 
 # === 数据采集 ===
-akshare>=1.14.0            # 免费A股数据（主数据源）
-tushare>=1.4.0             # Tushare Pro（财务/因子数据，需要token）
-requests>=2.32.0           # HTTP 请求
+mootdx>=0.11.0             # 通达信 TCP 行情 / 财务 / F10
+requests>=2.32.0           # HTTP 直连请求
+stockstats>=0.6.0          # 技术指标计算
 
 # === 数据处理 ===
 pandas>=2.0.0              # 数据框架
