@@ -80,6 +80,29 @@ class FakeFetcher:
         }
 
 
+class CapabilityFetcher(FakeFetcher):
+    def __init__(self):
+        super().__init__()
+        self._tushare_pro = None
+        self.supports_financial_indicators = True
+        self.supports_daily_basic = True
+        self.daily_basic_calls = []
+
+    def fetch_daily_basic(self, trade_date):
+        self.daily_basic_calls.append(trade_date)
+        return pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "trade_date": pd.to_datetime([trade_date]),
+            "pe": [6.5],
+            "pe_ttm": [6.6],
+            "pb": [0.7],
+            "turnover_rate": [1.2],
+            "volume_ratio": [0.9],
+            "circ_mv": [100.0],
+            "total_mv": [120.0],
+        })
+
+
 class FakeCleaner:
     def clean_kline(self, df, trade_cal):
         result = df.copy()
@@ -105,9 +128,14 @@ class FakeDB:
         self.financial_batches = []
         self.name_history_batches = []
         self.audit_batches = []
+        self.daily_basic_batches = []
 
     def upsert_financial(self, df):
         self.financial_batches.append(df.copy())
+        return len(df)
+
+    def upsert_daily_basic(self, df):
+        self.daily_basic_batches.append(df.copy())
         return len(df)
 
     def upsert_stock_name_history(self, df):
@@ -171,6 +199,34 @@ class PipelineResearchDataTest(unittest.TestCase):
         )
         self.assertEqual(len(pipeline.db.financial_batches), 1)
         self.assertEqual(len(pipeline.db.financial_batches[0]), 2)
+
+    def test_financial_step_uses_capability_flag_without_tushare(self):
+        pipeline = self.make_pipeline({
+            "fetch": {
+                "start_date": "20260101",
+                "financial_data": {"enabled": True, "batch_size": 2},
+            }
+        })
+        pipeline.fetcher = CapabilityFetcher()
+
+        pipeline._step_financial_indicators(["000001.SZ"], "2026-06-16")
+
+        self.assertEqual(
+            pipeline.fetcher.financial_calls,
+            [("000001.SZ", "20260101", "20260616")],
+        )
+        self.assertEqual(len(pipeline.db.financial_batches), 1)
+
+    def test_daily_basic_step_uses_capability_flag_without_tushare(self):
+        pipeline = self.make_pipeline({
+            "fetch": {"market_data": {"daily_basic": True}}
+        })
+        pipeline.fetcher = CapabilityFetcher()
+
+        pipeline._step_daily_basic("2026-06-16")
+
+        self.assertEqual(pipeline.fetcher.daily_basic_calls, ["20260616"])
+        self.assertEqual(len(pipeline.db.daily_basic_batches), 1)
 
     def test_stock_name_history_step_fetches_and_upserts_enabled_batch(self):
         pipeline = self.make_pipeline({

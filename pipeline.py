@@ -601,7 +601,12 @@ class Pipeline:
             .get("market_data", {})
             .get("daily_basic", False)
         )
-        if not enabled or not self.fetcher._tushare_pro:
+        supported = getattr(
+            self.fetcher,
+            "supports_daily_basic",
+            bool(getattr(self.fetcher, "_tushare_pro", None)),
+        )
+        if not enabled or not supported:
             return
 
         trade_date = (
@@ -615,7 +620,12 @@ class Pipeline:
     def _step_financial_indicators(self, stock_codes: list, target_date: str):
         """按配置采集季频财务指标，使用公告日期防止前视偏差。"""
         fin_cfg = self.config.get("fetch", {}).get("financial_data", {})
-        if not fin_cfg.get("enabled", False) or not self.fetcher._tushare_pro:
+        supported = getattr(
+            self.fetcher,
+            "supports_financial_indicators",
+            bool(getattr(self.fetcher, "_tushare_pro", None)),
+        )
+        if not fin_cfg.get("enabled", False) or not supported:
             return
 
         start_date = self.config.get("fetch", {}).get("start_date", "20231001")

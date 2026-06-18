@@ -38,7 +38,7 @@ fetch:
     adj_factor: false        # 新架构首阶段先保存未复权价格
     daily_basic: true        # 每日基本面指标（PE/PB/换手率等）
   financial_data:
-    enabled: false           # 后续接 mootdx finance / 新浪三表
+    enabled: false           # 可开启 mootdx finance 最新快照；历史三表后续接新浪
     batch_size: 100          # 每 N 只股票批量写入一次
     max_stocks_per_run: null # 留空=全量；测试/调试可限制只跑部分股票
     # 默认只在财务季报窗口（1/4/7/10月）自动拉取

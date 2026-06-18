@@ -132,6 +132,25 @@ class AStockDataGatewayTest(unittest.TestCase):
         stock_list.fetch_stock_list.assert_called_once_with()
         self.assertEqual(result.iloc[0]["source"], "mootdx")
 
+    def test_financial_indicators_delegates_to_finance_client(self):
+        finance = Mock()
+        finance.fetch_financial_indicators.return_value = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "ann_date": pd.to_datetime(["2026-04-25"]),
+            "end_date": pd.to_datetime(["2026-04-25"]),
+            "eps": [0.2],
+        })
+        gateway = AStockDataGateway(finance_client=finance)
+
+        result = gateway.fetch_financial_indicators(
+            "000001.SZ", "20260101", "20261231"
+        )
+
+        finance.fetch_financial_indicators.assert_called_once_with(
+            "000001.SZ", "20260101", "20261231"
+        )
+        self.assertEqual(result.iloc[0]["eps"], 0.2)
+
 
 if __name__ == "__main__":
     unittest.main()

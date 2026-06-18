@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 
 from core.astock.eastmoney.client import EastMoneyDataClient
+from core.astock.fundamental.mootdx_finance import MootdxFinanceClient
 from core.astock.market.baidu_kline import BaiduKlineClient
 from core.astock.market.mootdx_client import MootdxMarketClient
 from core.astock.market.stock_list import MootdxStockListClient
@@ -71,6 +72,7 @@ class AStockDataGateway:
         eastmoney_client: EastMoneyDataClient | None = None,
         calendar_client: TencentTradeCalendarClient | None = None,
         stock_list_client: MootdxStockListClient | None = None,
+        finance_client: MootdxFinanceClient | None = None,
     ) -> None:
         self.config = config or {}
         self.mootdx = mootdx_client or MootdxMarketClient()
@@ -79,7 +81,10 @@ class AStockDataGateway:
         self.eastmoney = eastmoney_client or EastMoneyDataClient()
         self.calendar = calendar_client or TencentTradeCalendarClient()
         self.stock_list = stock_list_client or MootdxStockListClient()
+        self.finance = finance_client or MootdxFinanceClient()
         self._tushare_pro = None
+        self.supports_daily_basic = True
+        self.supports_financial_indicators = True
 
     def fetch_daily_kline(
         self,
@@ -151,7 +156,7 @@ class AStockDataGateway:
     def fetch_financial_indicators(
         self, ts_code: str, start_date: str, end_date: str
     ) -> pd.DataFrame:
-        return pd.DataFrame()
+        return self.finance.fetch_financial_indicators(ts_code, start_date, end_date)
 
     def fetch_stock_name_history(self, ts_code: str) -> pd.DataFrame:
         return pd.DataFrame()

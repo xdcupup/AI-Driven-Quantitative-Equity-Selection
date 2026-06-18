@@ -10,13 +10,14 @@ AI 量化选股系统的数据采集层。当前重构目标是按 `a-stock-data
 - 已完成百度股市通 K 线客户端：带 MA5/MA10/MA20 的兜底行情。
 - 已完成 mootdx 日 K 线客户端：沪深主行情源，北交所首阶段返回空表。
 - 已完成 mootdx 全市场股票列表客户端：沪深 A 股列表，过滤指数、基金、债券和 B 股。
+- 已完成 mootdx finance 最新财务快照适配，可写入现有 `financial_indicators` 表。
 - 已完成东财特色数据客户端：所有请求必须走 `em_get` 串行限速入口。
 - 已完成 `AStockDataGateway`：pipeline 默认可切到新数据层。
 
 首阶段保留的兼容限制：
 
 - 复权因子暂未接入，`daily_kline` 保存未复权价格。
-- 季频财务、历史 ST、名称变更暂不再走 Tushare，后续接 mootdx finance / F10 / 新浪三表。
+- 完整历史财务三表、历史 ST、名称变更暂不再走 Tushare，后续接 F10 / 新浪三表等直连源。
 - 交易日历使用腾讯上证指数日 K 线日期派生，接口失败时才回退工作日近似。
 - 全市场股票列表优先从配置显式代码池读取；未配置时通过 mootdx 拉取沪深 A 股列表。
 
@@ -146,6 +147,7 @@ tail -n 120 logs/pipeline.log
 - `adj_factor`：首阶段暂未接入，质量报告中列为已知缺失。
 - `price_type`：当前为 `none`，表示未复权。
 - `source`：记录行情来源，如 `mootdx`、`baidu`、`tencent`。
+- `financial_indicators`：mootdx finance 当前提供最新快照；同比类字段缺少可靠来源时保持 `NULL`。
 
 ## 开发说明
 
@@ -161,5 +163,5 @@ tail -n 120 logs/pipeline.log
 
 ## 下一步
 
-- 接入 mootdx finance / F10 和新浪三表，替代旧 Tushare 财务增强。
+- 接入 F10 和新浪三表，补齐完整历史基本面数据。
 - 为东财独有数据补齐龙虎榜、解禁、融资融券、大宗交易、股东户数、分红、研报和新闻模块。
