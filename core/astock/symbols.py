@@ -40,11 +40,14 @@ def normalize_code(code: str) -> AStockSymbol:
         symbol = raw[2:]
     else:
         symbol = raw
-        if symbol.startswith(("6", "9")):
-            suffix = "SH"
-        elif symbol.startswith(("8", "4")):
+        if symbol.startswith("920") or symbol.startswith(("8", "4")):
             suffix = "BJ"
+        elif symbol.startswith(("6", "9")):
+            suffix = "SH"
         else:
             suffix = "SZ"
+
+    if suffix not in {"SH", "SZ", "BJ"} or not symbol.isdigit() or len(symbol) > 6:
+        raise ValueError(f"Invalid A-share code: {code!r}")
 
     return AStockSymbol(symbol=symbol.zfill(6), exchange_suffix=suffix)
