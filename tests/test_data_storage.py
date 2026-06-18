@@ -112,6 +112,51 @@ class QuantDBTest(unittest.TestCase):
         self.assertTrue(pd.isna(text["value"]))
         self.assertEqual(text["value_text"], "标准无保留意见")
 
+    def test_upsert_financial_factors_and_query_latest(self):
+        factors = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "end_date": pd.to_datetime(["2026-03-31"]),
+            "ann_date": pd.to_datetime(["2026-04-30"]),
+            "revenue": [120.0],
+            "net_profit": [24.0],
+            "total_assets": [500.0],
+            "total_liabilities": [300.0],
+            "equity": [200.0],
+            "operating_cashflow": [30.0],
+            "revenue_yoy": [20.0],
+            "net_profit_yoy": [20.0],
+            "debt_to_assets": [60.0],
+            "roe": [12.0],
+            "operating_cashflow_to_profit": [1.25],
+            "source": ["financial_statements"],
+        })
+
+        self.db.upsert_financial_factors(factors)
+
+        saved = self.db.query_latest_financial_factors("2026-06-30")
+
+        self.assertEqual(saved.iloc[0]["ts_code"], "000001.SZ")
+        self.assertEqual(saved.iloc[0]["revenue_yoy"], 20.0)
+        self.assertEqual(saved.iloc[0]["roe"], 12.0)
+
+    def test_query_financial_statements_accepts_compact_dates(self):
+        statements = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "report_type": ["income_statement"],
+            "end_date": pd.to_datetime(["2026-03-31"]),
+            "ann_date": [pd.NaT],
+            "item_order": [1],
+            "item": ["营业总收入"],
+            "value": [100.5],
+            "source": ["sina_finance"],
+        })
+        self.db.upsert_financial_statements(statements)
+
+        saved = self.db.query_financial_statements("20260101", "20261231")
+
+        self.assertEqual(len(saved), 1)
+        self.assertEqual(saved.iloc[0]["item"], "营业总收入")
+
     def test_research_universe_excludes_delisted_st_suspended_and_invalid_rows(self):
         stocks = pd.DataFrame({
             "ts_code": ["000001.SZ", "000002.SZ", "000003.SZ", "000004.SZ", "000005.SZ"],

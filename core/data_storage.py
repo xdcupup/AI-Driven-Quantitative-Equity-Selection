@@ -32,6 +32,12 @@ import duckdb
 from loguru import logger
 
 
+def _date_param(value: str | date | datetime | pd.Timestamp | None):
+    if value is None:
+        return None
+    return pd.Timestamp(str(value).replace("-", "")[:8]).strftime("%Y-%m-%d")
+
+
 # ============================================================================
 # Schema 定义
 # ============================================================================
@@ -156,6 +162,32 @@ CREATE TABLE IF NOT EXISTS financial_statements (
 
 CREATE INDEX IF NOT EXISTS idx_stmt_code_date
 ON financial_statements (ts_code, report_type, end_date);
+
+-- ====================================================================
+-- 派生财务因子表（一行一股票一报告期）
+-- ====================================================================
+CREATE TABLE IF NOT EXISTS financial_factors (
+    ts_code       VARCHAR NOT NULL,
+    end_date      DATE NOT NULL,
+    ann_date      DATE,
+    revenue       DOUBLE,
+    net_profit    DOUBLE,
+    total_assets  DOUBLE,
+    total_liabilities DOUBLE,
+    equity        DOUBLE,
+    operating_cashflow DOUBLE,
+    revenue_yoy   DOUBLE,
+    net_profit_yoy DOUBLE,
+    debt_to_assets DOUBLE,
+    roe           DOUBLE,
+    operating_cashflow_to_profit DOUBLE,
+    source        VARCHAR,
+    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (ts_code, end_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fin_factor_ann_date
+ON financial_factors (ann_date);
 
 -- ====================================================================
 -- 股票名称与 ST 历史（用于历史过滤，降低幸存者/状态偏差）
@@ -370,6 +402,12 @@ class QuantDB:
         )
         self.conn.execute(
             "ALTER TABLE financial_statements ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        )
+        self.conn.execute(
+            "ALTER TABLE financial_factors ADD COLUMN IF NOT EXISTS source VARCHAR"
+        )
+        self.conn.execute(
+            "ALTER TABLE financial_factors ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
         )
 
         logger.info("数据库 Schema 初始化完成")
@@ -593,6 +631,83 @@ class QuantDB:
         logger.debug(f"原始财报 UPSERT: {count} 行")
         return count
 
+    def upsert_financial_factors(self, df: pd.DataFrame) -> int:
+        """写入派生财务因子。"""
+        if df.empty:
+            return 0
+
+        required = {"ts_code", "end_date"}
+        missing = required - set(df.columns)
+        if missing:
+            logger.error(f"财务因子数据缺少必要字段: {missing}")
+            return 0
+
+        df = df.copy()
+        df["end_date"] = pd.to_datetime(df["end_date"])
+        if "ann_date" not in df.columns:
+            df["ann_date"] = pd.NaT
+        df["ann_date"] = pd.to_datetime(df["ann_date"], errors="coerce")
+        if "source" not in df.columns:
+            df["source"] = None
+
+        upsert_cols = [
+            "ts_code",
+            "end_date",
+            "ann_date",
+            "revenue",
+            "net_profit",
+            "total_assets",
+            "total_liabilities",
+            "equity",
+            "operating_cashflow",
+            "revenue_yoy",
+            "net_profit_yoy",
+            "debt_to_assets",
+            "roe",
+            "operating_cashflow_to_profit",
+            "source",
+        ]
+        for col in upsert_cols:
+            if col not in df.columns:
+                df[col] = None
+        numeric_cols = [col for col in upsert_cols if col not in {"ts_code", "end_date", "ann_date", "source"}]
+        for col in numeric_cols:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        self.conn.register("_tmp_financial_factors", df[upsert_cols])
+        count = self.conn.execute("""
+            INSERT INTO financial_factors (
+                ts_code, end_date, ann_date,
+                revenue, net_profit, total_assets, total_liabilities,
+                equity, operating_cashflow, revenue_yoy, net_profit_yoy,
+                debt_to_assets, roe, operating_cashflow_to_profit, source
+            )
+            SELECT
+                ts_code, end_date, ann_date,
+                revenue, net_profit, total_assets, total_liabilities,
+                equity, operating_cashflow, revenue_yoy, net_profit_yoy,
+                debt_to_assets, roe, operating_cashflow_to_profit, source
+            FROM _tmp_financial_factors
+            ON CONFLICT (ts_code, end_date) DO UPDATE SET
+                ann_date = EXCLUDED.ann_date,
+                revenue = EXCLUDED.revenue,
+                net_profit = EXCLUDED.net_profit,
+                total_assets = EXCLUDED.total_assets,
+                total_liabilities = EXCLUDED.total_liabilities,
+                equity = EXCLUDED.equity,
+                operating_cashflow = EXCLUDED.operating_cashflow,
+                revenue_yoy = EXCLUDED.revenue_yoy,
+                net_profit_yoy = EXCLUDED.net_profit_yoy,
+                debt_to_assets = EXCLUDED.debt_to_assets,
+                roe = EXCLUDED.roe,
+                operating_cashflow_to_profit = EXCLUDED.operating_cashflow_to_profit,
+                source = EXCLUDED.source,
+                updated_at = now()
+        """).fetchone()[0]
+
+        logger.debug(f"财务因子 UPSERT: {count} 行")
+        return count
+
     def upsert_stock_name_history(self, df: pd.DataFrame) -> int:
         """写入股票名称/ST 历史。"""
         if df.empty:
@@ -756,6 +871,41 @@ class QuantDB:
             "SELECT * FROM stock_list WHERE list_status = ? ORDER BY ts_code",
             [status]
         ).fetchdf()
+
+    def query_financial_statements(
+        self,
+        start_date: str = None,
+        end_date: str = None,
+    ) -> pd.DataFrame:
+        """查询原始财报长表。"""
+        where = []
+        params = []
+        if start_date:
+            where.append("end_date >= ?::DATE")
+            params.append(_date_param(start_date))
+        if end_date:
+            where.append("end_date <= ?::DATE")
+            params.append(_date_param(end_date))
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        return self.conn.execute(f"""
+            SELECT *
+            FROM financial_statements
+            {clause}
+            ORDER BY ts_code, end_date, report_type, item_order
+        """, params).fetchdf()
+
+    def query_latest_financial_factors(self, as_of_date: str) -> pd.DataFrame:
+        """查询截至指定日期可见的最新财务因子，按 ann_date 防前视。"""
+        return self.conn.execute("""
+            SELECT *
+            FROM financial_factors
+            WHERE ann_date <= ?::DATE OR ann_date IS NULL
+            QUALIFY ROW_NUMBER() OVER (
+                PARTITION BY ts_code
+                ORDER BY COALESCE(ann_date, end_date) DESC, end_date DESC
+            ) = 1
+            ORDER BY ts_code
+        """, [as_of_date]).fetchdf()
 
     def get_latest_trade_date(self) -> Optional[date]:
         """获取数据库中最近的交易日"""

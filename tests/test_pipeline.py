@@ -144,6 +144,7 @@ class FakeDB:
     def __init__(self):
         self.financial_batches = []
         self.statement_batches = []
+        self.factor_batches = []
         self.name_history_batches = []
         self.audit_batches = []
         self.daily_basic_batches = []
@@ -154,6 +155,54 @@ class FakeDB:
 
     def upsert_financial_statements(self, df):
         self.statement_batches.append(df.copy())
+        return len(df)
+
+    def query_financial_statements(self, start_date=None, end_date=None):
+        return pd.DataFrame({
+            "ts_code": ["000001.SZ"] * 12,
+            "report_type": [
+                "income_statement",
+                "income_statement",
+                "balance_sheet",
+                "balance_sheet",
+                "balance_sheet",
+                "cash_flow",
+            ] * 2,
+            "end_date": pd.to_datetime(["2026-03-31"] * 6 + ["2025-03-31"] * 6),
+            "ann_date": pd.to_datetime(["2026-04-30"] * 6 + ["2025-04-30"] * 6),
+            "item_order": list(range(1, 7)) * 2,
+            "item": [
+                "营业总收入",
+                "净利润",
+                "资产总计",
+                "负债合计",
+                "所有者权益合计",
+                "经营活动产生的现金流量净额",
+                "营业总收入",
+                "净利润",
+                "资产总计",
+                "负债合计",
+                "所有者权益合计",
+                "经营活动产生的现金流量净额",
+            ],
+            "value": [
+                120.0,
+                24.0,
+                500.0,
+                300.0,
+                200.0,
+                30.0,
+                100.0,
+                20.0,
+                400.0,
+                260.0,
+                140.0,
+                15.0,
+            ],
+        })
+
+    def upsert_financial_factors(self, df):
+        self.factor_batches.append(df.copy())
         return len(df)
 
     def upsert_daily_basic(self, df):
@@ -286,6 +335,22 @@ class PipelineResearchDataTest(unittest.TestCase):
 
         self.assertEqual(pipeline.fetcher.statement_calls, [])
         self.assertEqual(pipeline.db.statement_batches, [])
+
+    def test_financial_factor_step_derives_and_upserts_factors(self):
+        pipeline = self.make_pipeline({
+            "fetch": {
+                "start_date": "20250101",
+                "factor_derivation": {"enabled": True}
+            }
+        })
+
+        pipeline._step_financial_factors("2026-06-16")
+
+        self.assertEqual(len(pipeline.db.factor_batches), 1)
+        factors = pipeline.db.factor_batches[0]
+        current = factors[factors["end_date"] == pd.Timestamp("2026-03-31")].iloc[0]
+        self.assertEqual(current["revenue_yoy"], 20.0)
+        self.assertEqual(current["debt_to_assets"], 60.0)
 
     def test_daily_basic_step_uses_capability_flag_without_tushare(self):
         pipeline = self.make_pipeline({

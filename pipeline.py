@@ -234,6 +234,7 @@ class Pipeline:
             self._step_daily_basic(target_date)
             self._step_financial_indicators(stock_codes, target_date)
             self._step_financial_statements(stock_codes, target_date, full_refresh)
+            self._step_financial_factors(target_date)
             quality_report = self._step_quality_report(target_date)
             self._step_source_audit(stock_codes, target_date)
             self._step_maintenance()
@@ -257,6 +258,7 @@ class Pipeline:
             "daily_basic",
             "financial_indicators",
             "financial_statements",
+            "financial_factors",
             "trade_calendar",
             "stock_list",
         ]:
@@ -705,6 +707,29 @@ class Pipeline:
                         merged = pd.concat(batch, ignore_index=True)
                         self.db.upsert_financial_statements(merged)
                         batch.clear()
+
+    def _step_financial_factors(self, target_date: str):
+        """按配置从原始三表派生财务因子。"""
+        factor_cfg = self.config.get("fetch", {}).get("factor_derivation", {})
+        if not factor_cfg.get("enabled", False):
+            return
+
+        from core.factors.financial import derive_financial_factors
+
+        start_date = self.config.get("fetch", {}).get("start_date", "20231001")
+        end_date = (
+            target_date or datetime.now().strftime("%Y%m%d")
+        ).replace("-", "")
+
+        logger.info("派生财务因子...")
+        statements = self.db.query_financial_statements(
+            str(start_date).replace("-", ""), end_date
+        )
+        if statements.empty:
+            return
+        factors = derive_financial_factors(statements)
+        if not factors.empty:
+            self.db.upsert_financial_factors(factors)
 
     def _step_source_audit(self, stock_codes: list, target_date: str):
         """对腾讯和配置的第二数据源做轻量抽样对账。"""

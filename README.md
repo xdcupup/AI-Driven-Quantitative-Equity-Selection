@@ -13,6 +13,7 @@ AI 量化选股系统的数据采集层。当前重构目标是按 `a-stock-data
 - 已完成 mootdx finance 最新财务快照适配，可写入现有 `financial_indicators` 表。
 - 已完成 mootdx F10 基础信息接口：支持目录和指定章节文本读取。
 - 已完成新浪三表原始财报接口和 `financial_statements` 入库：支持资产负债表、利润表、现金流量表长表读取。
+- 已完成基础财务因子派生：从原始三表生成 `financial_factors`。
 - 已完成东财特色数据客户端：所有请求必须走 `em_get` 串行限速入口。
 - 已完成 `AStockDataGateway`：pipeline 默认可切到新数据层。
 
@@ -112,6 +113,8 @@ fetch:
       - income_statement
       - balance_sheet
       - cash_flow
+  factor_derivation:
+    enabled: true
 ```
 
 ## 常用命令
@@ -171,6 +174,7 @@ tail -n 120 logs/pipeline.log
 - `financial_indicators`：mootdx finance 当前提供最新快照；同比类字段缺少可靠来源时保持 `NULL`。
 - `F10`：当前通过 gateway 提供目录和章节文本接口，暂未设计入库表。
 - `financial_statements`：新浪三表原始长表，字段为 `ts_code/report_type/end_date/ann_date/item_order/item/value/value_text/item_yoy/source`。`item_order` 保留原始行序，避免重复科目名覆盖；`value_text` 保留原始值，`value` 尽量转为数字，文本科目保留在 `value_text`。
+- `financial_factors`：财务因子宽表，字段包括 `revenue/net_profit/total_assets/total_liabilities/equity/operating_cashflow/revenue_yoy/net_profit_yoy/debt_to_assets/roe/operating_cashflow_to_profit`。查询时优先用 `ann_date` 防前视。
 
 ## 开发说明
 
@@ -186,5 +190,5 @@ tail -n 120 logs/pipeline.log
 
 ## 下一步
 
-- 基于 `financial_statements` 派生常用财务因子，如营收同比、净利润同比、资产负债率和经营现金流质量。
+- 增加技术/量价因子，如动量、波动率、均线乖离、换手率稳定性和量价配合。
 - 为东财独有数据补齐龙虎榜、解禁、融资融券、大宗交易、股东户数、分红、研报和新闻模块。
