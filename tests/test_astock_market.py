@@ -113,6 +113,24 @@ class TencentQuoteClientTest(unittest.TestCase):
 
 
 class BaiduKlineClientTest(unittest.TestCase):
+    EXPECTED_COLUMNS = [
+        "ts_code",
+        "trade_date",
+        "open",
+        "close",
+        "high",
+        "low",
+        "vol",
+        "amount",
+        "ma5",
+        "ma10",
+        "ma20",
+        "source",
+    ]
+
+    def assertStableColumns(self, result):
+        self.assertEqual(list(result.columns), self.EXPECTED_COLUMNS)
+
     def test_parse_kline_accepts_string_result_code_and_ma_fields(self):
         session = Mock()
         response = Mock()
@@ -142,6 +160,7 @@ class BaiduKlineClientTest(unittest.TestCase):
         self.assertEqual(result.iloc[1]["close"], 10.94)
         self.assertEqual(result.iloc[1]["ma20"], 10.8)
         self.assertEqual(result.iloc[1]["source"], "baidu")
+        self.assertStableColumns(result)
 
     def test_parse_kline_accepts_integer_result_code(self):
         session = Mock()
@@ -162,6 +181,108 @@ class BaiduKlineClientTest(unittest.TestCase):
 
         self.assertEqual(len(result), 1)
         self.assertEqual(result.iloc[0]["amount"], 131280.0)
+        self.assertStableColumns(result)
+
+    def test_nonzero_result_code_returns_stable_empty_schema(self):
+        session = Mock()
+        response = Mock()
+        response.json.return_value = {"ResultCode": 1}
+        session.get.return_value = response
+        client = BaiduKlineClient(session=session)
+
+        result = client.fetch_kline_with_ma("000001")
+
+        self.assertTrue(result.empty)
+        self.assertStableColumns(result)
+
+    def test_missing_or_none_payload_pieces_return_stable_empty_schema(self):
+        payloads = [
+            {"ResultCode": 0},
+            {"ResultCode": 0, "Result": None},
+            {"ResultCode": 0, "Result": {"newMarketData": None}},
+            {"ResultCode": 0, "Result": {"newMarketData": {"marketData": ""}}},
+            {
+                "ResultCode": 0,
+                "Result": {"newMarketData": {"keys": None, "marketData": "20260616"}},
+            },
+            {
+                "ResultCode": 0,
+                "Result": {"newMarketData": {"keys": ["time"], "marketData": None}},
+            },
+            {
+                "ResultCode": 0,
+                "Result": {"newMarketData": {"keys": ["time"], "marketData": ["20260616"]}},
+            },
+        ]
+
+        for payload in payloads:
+            with self.subTest(payload=payload):
+                session = Mock()
+                response = Mock()
+                response.json.return_value = payload
+                session.get.return_value = response
+                client = BaiduKlineClient(session=session)
+
+                result = client.fetch_kline_with_ma("000001")
+
+                self.assertTrue(result.empty)
+                self.assertStableColumns(result)
+
+    def test_malformed_and_short_rows_are_skipped_with_stable_schema(self):
+        session = Mock()
+        response = Mock()
+        response.json.return_value = {
+            "ResultCode": 0,
+            "Result": {
+                "newMarketData": {
+                    "keys": [
+                        "time", "open", "close", "high", "low",
+                        "volume", "amount", "ma5avgprice",
+                        "ma10avgprice", "ma20avgprice",
+                    ],
+                    "marketData": (
+                        "not-a-row;"
+                        "20260616,11.10;"
+                        "20260617,11.10,10.94,11.12,10.91,1200,131280,11.0,10.9,10.8"
+                    ),
+                }
+            },
+        }
+        session.get.return_value = response
+        client = BaiduKlineClient(session=session)
+
+        result = client.fetch_kline_with_ma("000001")
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0]["trade_date"], pd.Timestamp("2026-06-17"))
+        self.assertEqual(result.iloc[0]["close"], 10.94)
+        self.assertStableColumns(result)
+
+    def test_invalid_or_missing_dates_are_dropped(self):
+        session = Mock()
+        response = Mock()
+        response.json.return_value = {
+            "ResultCode": 0,
+            "Result": {
+                "newMarketData": {
+                    "keys": ["time", "open", "close", "high", "low", "volume", "amount"],
+                    "marketData": (
+                        "bad-date,11.10,10.94,11.12,10.91,1200,131280;"
+                        ",11.10,10.94,11.12,10.91,1200,131280;"
+                        "20260618,11.20,11.00,11.30,10.98,1500,165000"
+                    ),
+                }
+            },
+        }
+        session.get.return_value = response
+        client = BaiduKlineClient(session=session)
+
+        result = client.fetch_kline_with_ma("000001")
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0]["trade_date"], pd.Timestamp("2026-06-18"))
+        self.assertEqual(result.iloc[0]["amount"], 165000.0)
+        self.assertStableColumns(result)
 
 
 if __name__ == "__main__":
