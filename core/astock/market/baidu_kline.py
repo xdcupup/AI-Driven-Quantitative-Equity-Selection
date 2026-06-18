@@ -59,7 +59,10 @@ class BaiduKlineClient:
             headers=HEADERS,
             timeout=10,
         )
-        payload = response.json()
+        try:
+            payload = response.json()
+        except ValueError:
+            return _empty_kline_frame()
         if not isinstance(payload, dict):
             return _empty_kline_frame()
         if str(payload.get("ResultCode", -1)) != "0":

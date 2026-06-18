@@ -195,6 +195,32 @@ class BaiduKlineClientTest(unittest.TestCase):
         self.assertTrue(result.empty)
         self.assertStableColumns(result)
 
+    def test_json_decode_failure_returns_stable_empty_schema(self):
+        session = Mock()
+        response = Mock()
+        response.json.side_effect = ValueError("bad json")
+        session.get.return_value = response
+        client = BaiduKlineClient(session=session)
+
+        result = client.fetch_kline_with_ma("000001")
+
+        self.assertTrue(result.empty)
+        self.assertStableColumns(result)
+
+    def test_top_level_non_dict_payload_returns_stable_empty_schema(self):
+        for payload in [None, [], "bad"]:
+            with self.subTest(payload=payload):
+                session = Mock()
+                response = Mock()
+                response.json.return_value = payload
+                session.get.return_value = response
+                client = BaiduKlineClient(session=session)
+
+                result = client.fetch_kline_with_ma("000001")
+
+                self.assertTrue(result.empty)
+                self.assertStableColumns(result)
+
     def test_missing_or_none_payload_pieces_return_stable_empty_schema(self):
         payloads = [
             {"ResultCode": 0},
