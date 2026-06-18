@@ -84,6 +84,34 @@ class QuantDBTest(unittest.TestCase):
         self.assertTrue(bool(saved_history.iloc[0]["is_st"]))
         self.assertEqual(saved_audit.iloc[0]["status"], "warning")
 
+    def test_upsert_financial_statements_preserves_raw_text_and_numeric_value(self):
+        statements = pd.DataFrame({
+            "ts_code": ["000001.SZ", "000001.SZ"],
+            "report_type": ["income_statement", "balance_sheet"],
+            "end_date": pd.to_datetime(["2026-03-31", "2026-03-31"]),
+            "ann_date": [pd.NaT, pd.NaT],
+            "item": ["营业总收入", "审计意见"],
+            "value": ["100.5", "标准无保留意见"],
+            "item_yoy": ["8.2", None],
+            "source": ["sina_finance", "sina_finance"],
+        })
+
+        self.db.upsert_financial_statements(statements)
+
+        saved = self.db.query_sql("""
+            SELECT report_type, item, value, value_text, item_yoy, source
+            FROM financial_statements
+            ORDER BY report_type DESC
+        """)
+
+        numeric = saved[saved["item"] == "营业总收入"].iloc[0]
+        text = saved[saved["item"] == "审计意见"].iloc[0]
+        self.assertEqual(numeric["value"], 100.5)
+        self.assertEqual(numeric["value_text"], "100.5")
+        self.assertEqual(numeric["item_yoy"], 8.2)
+        self.assertTrue(pd.isna(text["value"]))
+        self.assertEqual(text["value_text"], "标准无保留意见")
+
     def test_research_universe_excludes_delisted_st_suspended_and_invalid_rows(self):
         stocks = pd.DataFrame({
             "ts_code": ["000001.SZ", "000002.SZ", "000003.SZ", "000004.SZ", "000005.SZ"],

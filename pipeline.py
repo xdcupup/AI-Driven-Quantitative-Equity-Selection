@@ -233,6 +233,7 @@ class Pipeline:
             )
             self._step_daily_basic(target_date)
             self._step_financial_indicators(stock_codes, target_date)
+            self._step_financial_statements(stock_codes, target_date, full_refresh)
             quality_report = self._step_quality_report(target_date)
             self._step_source_audit(stock_codes, target_date)
             self._step_maintenance()
@@ -251,7 +252,14 @@ class Pipeline:
         self.db.init_schema()
         
         db_size = self.db.database_size_mb()
-        for table in ["daily_kline", "daily_basic", "financial_indicators", "trade_calendar", "stock_list"]:
+        for table in [
+            "daily_kline",
+            "daily_basic",
+            "financial_indicators",
+            "financial_statements",
+            "trade_calendar",
+            "stock_list",
+        ]:
             if self.db.table_exists(table):
                 count = self.db.table_row_count(table)
                 logger.info(f"  {table}: {count:,} 行")
@@ -649,6 +657,54 @@ class Pipeline:
                     merged = pd.concat(batch, ignore_index=True)
                     self.db.upsert_financial(merged)
                     batch.clear()
+
+    def _step_financial_statements(
+        self,
+        stock_codes: list,
+        target_date: str,
+        full_refresh: bool,
+    ):
+        """按配置采集原始财务报表长表。"""
+        stmt_cfg = self.config.get("fetch", {}).get("financial_statements", {})
+        supported = getattr(self.fetcher, "supports_financial_statements", False)
+        if not stmt_cfg.get("enabled", False) or not supported:
+            return
+        if stmt_cfg.get("full_refresh_only", True) and not full_refresh:
+            return
+
+        start_date = self.config.get("fetch", {}).get("start_date", "20231001")
+        end_date = (
+            target_date or datetime.now().strftime("%Y%m%d")
+        ).replace("-", "")
+        statement_types = stmt_cfg.get("statement_types") or [
+            "income_statement",
+            "balance_sheet",
+            "cash_flow",
+        ]
+        batch_size = int(stmt_cfg.get("batch_size", 50))
+        max_stocks = stmt_cfg.get("max_stocks_per_run")
+        codes = stock_codes[: int(max_stocks)] if max_stocks else stock_codes
+
+        logger.info("采集原始财报三表...")
+        batch = []
+        processed = 0
+        total_requests = len(codes) * len(statement_types)
+        for ts_code in codes:
+            for statement_type in statement_types:
+                processed += 1
+                df = self.fetcher.fetch_financial_statement(
+                    ts_code,
+                    statement_type,
+                    str(start_date).replace("-", ""),
+                    end_date,
+                )
+                if not df.empty:
+                    batch.append(df)
+                if len(batch) >= batch_size or processed == total_requests:
+                    if batch:
+                        merged = pd.concat(batch, ignore_index=True)
+                        self.db.upsert_financial_statements(merged)
+                        batch.clear()
 
     def _step_source_audit(self, stock_codes: list, target_date: str):
         """对腾讯和配置的第二数据源做轻量抽样对账。"""

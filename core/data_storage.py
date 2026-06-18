@@ -137,6 +137,27 @@ CREATE TABLE IF NOT EXISTS financial_indicators (
 CREATE INDEX IF NOT EXISTS idx_fin_ann_date ON financial_indicators (ann_date);
 
 -- ====================================================================
+-- 原始财务报表长表（季频/年频，新浪三表）
+-- ====================================================================
+CREATE TABLE IF NOT EXISTS financial_statements (
+    ts_code       VARCHAR NOT NULL,
+    report_type   VARCHAR NOT NULL,     -- balance_sheet / income_statement / cash_flow
+    end_date      DATE NOT NULL,        -- 报告期
+    ann_date      DATE,                 -- 公告日期；新浪源暂缺时为空
+    item_order    INTEGER NOT NULL,     -- 原始行序号，避免重复科目名覆盖
+    item          VARCHAR NOT NULL,      -- 报表科目
+    value         DOUBLE,               -- 可解析为数字的值
+    value_text    VARCHAR,              -- 原始字符串值，保留文本科目
+    item_yoy      DOUBLE,               -- 科目同比；新浪有值时写入
+    source        VARCHAR,
+    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (ts_code, report_type, end_date, item_order)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stmt_code_date
+ON financial_statements (ts_code, report_type, end_date);
+
+-- ====================================================================
 -- 股票名称与 ST 历史（用于历史过滤，降低幸存者/状态偏差）
 -- ====================================================================
 CREATE TABLE IF NOT EXISTS stock_name_history (
@@ -335,6 +356,21 @@ class QuantDB:
         self.conn.execute(
             "ALTER TABLE daily_kline ADD COLUMN IF NOT EXISTS flag_invalid_ohlc BOOLEAN DEFAULT FALSE"
         )
+        self.conn.execute(
+            "ALTER TABLE financial_statements ADD COLUMN IF NOT EXISTS value_text VARCHAR"
+        )
+        self.conn.execute(
+            "ALTER TABLE financial_statements ADD COLUMN IF NOT EXISTS item_order INTEGER DEFAULT 0"
+        )
+        self.conn.execute(
+            "ALTER TABLE financial_statements ADD COLUMN IF NOT EXISTS item_yoy DOUBLE"
+        )
+        self.conn.execute(
+            "ALTER TABLE financial_statements ADD COLUMN IF NOT EXISTS source VARCHAR"
+        )
+        self.conn.execute(
+            "ALTER TABLE financial_statements ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        )
 
         logger.info("数据库 Schema 初始化完成")
 
@@ -488,6 +524,73 @@ class QuantDB:
         """).fetchone()[0]
         
         logger.debug(f"财务指标 UPSERT: {count} 行")
+        return count
+
+    def upsert_financial_statements(self, df: pd.DataFrame) -> int:
+        """写入原始财务报表长表。"""
+        if df.empty:
+            return 0
+
+        required = {"ts_code", "report_type", "end_date", "item", "value"}
+        missing = required - set(df.columns)
+        if missing:
+            logger.error(f"原始财报数据缺少必要字段: {missing}")
+            return 0
+
+        df = df.copy()
+        df["end_date"] = pd.to_datetime(df["end_date"])
+        if "ann_date" not in df.columns:
+            df["ann_date"] = pd.NaT
+        df["ann_date"] = pd.to_datetime(df["ann_date"], errors="coerce")
+        if "source" not in df.columns:
+            df["source"] = None
+        if "item_yoy" not in df.columns:
+            df["item_yoy"] = None
+        if "item_order" not in df.columns:
+            df["item_order"] = (
+                df.groupby(["ts_code", "report_type", "end_date"]).cumcount() + 1
+            )
+        df["item_order"] = pd.to_numeric(df["item_order"], errors="coerce").fillna(0).astype(int)
+
+        raw_value = df["value"]
+        if "value_text" not in df.columns:
+            df["value_text"] = raw_value.where(raw_value.notna(), None).astype("string")
+        df["value"] = pd.to_numeric(raw_value, errors="coerce")
+        df["item_yoy"] = pd.to_numeric(df["item_yoy"], errors="coerce")
+
+        upsert_cols = [
+            "ts_code",
+            "report_type",
+            "end_date",
+            "ann_date",
+            "item_order",
+            "item",
+            "value",
+            "value_text",
+            "item_yoy",
+            "source",
+        ]
+        self.conn.register("_tmp_financial_statements", df[upsert_cols])
+        count = self.conn.execute("""
+            INSERT INTO financial_statements (
+                ts_code, report_type, end_date, ann_date, item_order, item,
+                value, value_text, item_yoy, source
+            )
+            SELECT
+                ts_code, report_type, end_date, ann_date, item_order, item,
+                value, value_text, item_yoy, source
+            FROM _tmp_financial_statements
+            ON CONFLICT (ts_code, report_type, end_date, item_order) DO UPDATE SET
+                ann_date   = EXCLUDED.ann_date,
+                item       = EXCLUDED.item,
+                value      = EXCLUDED.value,
+                value_text = EXCLUDED.value_text,
+                item_yoy   = EXCLUDED.item_yoy,
+                source     = EXCLUDED.source,
+                updated_at = now()
+        """).fetchone()[0]
+
+        logger.debug(f"原始财报 UPSERT: {count} 行")
         return count
 
     def upsert_stock_name_history(self, df: pd.DataFrame) -> int:

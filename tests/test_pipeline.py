@@ -8,7 +8,9 @@ from pipeline import Pipeline
 class FakeFetcher:
     def __init__(self):
         self._tushare_pro = object()
+        self.supports_financial_statements = True
         self.financial_calls = []
+        self.statement_calls = []
         self.name_history_calls = []
         self.audit_calls = []
 
@@ -49,6 +51,20 @@ class FakeFetcher:
             "dt_debt_ratio": [45.0],
         })
 
+    def fetch_financial_statement(self, ts_code, statement_type, start_date, end_date):
+        self.statement_calls.append((ts_code, statement_type, start_date, end_date))
+        return pd.DataFrame({
+            "ts_code": [ts_code],
+            "report_type": [statement_type],
+            "end_date": pd.to_datetime(["2026-03-31"]),
+            "ann_date": [pd.NaT],
+            "item_order": [1],
+            "item": ["营业总收入"],
+            "value": [100.5],
+            "item_yoy": [8.2],
+            "source": ["sina_finance"],
+        })
+
     def fetch_stock_name_history(self, ts_code):
         self.name_history_calls.append(ts_code)
         return pd.DataFrame({
@@ -85,6 +101,7 @@ class CapabilityFetcher(FakeFetcher):
         super().__init__()
         self._tushare_pro = None
         self.supports_financial_indicators = True
+        self.supports_financial_statements = True
         self.supports_daily_basic = True
         self.daily_basic_calls = []
 
@@ -126,12 +143,17 @@ class FakeCleaner:
 class FakeDB:
     def __init__(self):
         self.financial_batches = []
+        self.statement_batches = []
         self.name_history_batches = []
         self.audit_batches = []
         self.daily_basic_batches = []
 
     def upsert_financial(self, df):
         self.financial_batches.append(df.copy())
+        return len(df)
+
+    def upsert_financial_statements(self, df):
+        self.statement_batches.append(df.copy())
         return len(df)
 
     def upsert_daily_basic(self, df):
@@ -216,6 +238,54 @@ class PipelineResearchDataTest(unittest.TestCase):
             [("000001.SZ", "20260101", "20260616")],
         )
         self.assertEqual(len(pipeline.db.financial_batches), 1)
+
+    def test_financial_statement_step_fetches_three_reports_and_upserts_batch(self):
+        pipeline = self.make_pipeline({
+            "fetch": {
+                "start_date": "20260101",
+                "financial_statements": {
+                    "enabled": True,
+                    "batch_size": 3,
+                    "statement_types": ["income_statement", "balance_sheet", "cash_flow"],
+                    "full_refresh_only": False,
+                },
+            }
+        })
+
+        pipeline._step_financial_statements(
+            ["000001.SZ", "600000.SH"], "2026-06-16", full_refresh=False
+        )
+
+        self.assertEqual(
+            pipeline.fetcher.statement_calls,
+            [
+                ("000001.SZ", "income_statement", "20260101", "20260616"),
+                ("000001.SZ", "balance_sheet", "20260101", "20260616"),
+                ("000001.SZ", "cash_flow", "20260101", "20260616"),
+                ("600000.SH", "income_statement", "20260101", "20260616"),
+                ("600000.SH", "balance_sheet", "20260101", "20260616"),
+                ("600000.SH", "cash_flow", "20260101", "20260616"),
+            ],
+        )
+        self.assertEqual(len(pipeline.db.statement_batches), 2)
+        self.assertEqual(sum(len(df) for df in pipeline.db.statement_batches), 6)
+
+    def test_financial_statement_step_respects_full_refresh_only(self):
+        pipeline = self.make_pipeline({
+            "fetch": {
+                "financial_statements": {
+                    "enabled": True,
+                    "full_refresh_only": True,
+                }
+            }
+        })
+
+        pipeline._step_financial_statements(
+            ["000001.SZ"], "2026-06-16", full_refresh=False
+        )
+
+        self.assertEqual(pipeline.fetcher.statement_calls, [])
+        self.assertEqual(pipeline.db.statement_batches, [])
 
     def test_daily_basic_step_uses_capability_flag_without_tushare(self):
         pipeline = self.make_pipeline({

@@ -22,6 +22,7 @@ STATEMENT_COLUMNS = [
     "report_type",
     "end_date",
     "ann_date",
+    "item_order",
     "item",
     "value",
     "item_yoy",
@@ -151,7 +152,7 @@ class SinaFinancialStatementClient:
                 continue
             end_date = f"{period_text[:4]}-{period_text[4:6]}-{period_text[6:8]}"
             obj = report_list.get(period) or {}
-            for item in obj.get("data", []) or []:
+            for item_order, item in enumerate(obj.get("data", []) or [], start=1):
                 if not isinstance(item, dict):
                     continue
                 title = str(item.get("item_title", "")).strip()
@@ -163,6 +164,7 @@ class SinaFinancialStatementClient:
                     "report_type": report_type,
                     "end_date": end_date,
                     "ann_date": pd.NaT,
+                    "item_order": item_order,
                     "item": title,
                     "value": _parse_number_or_text(value),
                     "item_yoy": _parse_number_or_text(item.get("item_tongbi")),

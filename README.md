@@ -12,7 +12,7 @@ AI 量化选股系统的数据采集层。当前重构目标是按 `a-stock-data
 - 已完成 mootdx 全市场股票列表客户端：沪深 A 股列表，过滤指数、基金、债券和 B 股。
 - 已完成 mootdx finance 最新财务快照适配，可写入现有 `financial_indicators` 表。
 - 已完成 mootdx F10 基础信息接口：支持目录和指定章节文本读取。
-- 已完成新浪三表原始财报接口：支持资产负债表、利润表、现金流量表长表读取。
+- 已完成新浪三表原始财报接口和 `financial_statements` 入库：支持资产负债表、利润表、现金流量表长表读取。
 - 已完成东财特色数据客户端：所有请求必须走 `em_get` 串行限速入口。
 - 已完成 `AStockDataGateway`：pipeline 默认可切到新数据层。
 
@@ -20,7 +20,7 @@ AI 量化选股系统的数据采集层。当前重构目标是按 `a-stock-data
 
 - 复权因子暂未接入，`daily_kline` 保存未复权价格。
 - 历史 ST、名称变更暂不再走 Tushare，后续接直连源补齐。
-- 新浪三表当前作为原始报表源暴露在 gateway，尚未设计 DuckDB 原始财报入库表。
+- 新浪三表当前作为原始报表源入库，默认关闭；全量任务可按需开启。
 - 交易日历使用腾讯上证指数日 K 线日期派生，接口失败时才回退工作日近似。
 - 全市场股票列表优先从配置显式代码池读取；未配置时通过 mootdx 拉取沪深 A 股列表。
 
@@ -101,6 +101,19 @@ stock_pool:
 
 如果没有配置 `stock_pool.codes`，网关会通过 mootdx 获取沪深 A 股股票列表，并过滤指数、基金、债券和 B 股。
 
+新浪三表默认关闭。需要全量拉取原始财报时开启：
+
+```yaml
+fetch:
+  financial_statements:
+    enabled: true
+    full_refresh_only: true
+    statement_types:
+      - income_statement
+      - balance_sheet
+      - cash_flow
+```
+
 ## 常用命令
 
 运行测试：
@@ -157,7 +170,7 @@ tail -n 120 logs/pipeline.log
 - `source`：记录行情来源，如 `mootdx`、`baidu`、`tencent`。
 - `financial_indicators`：mootdx finance 当前提供最新快照；同比类字段缺少可靠来源时保持 `NULL`。
 - `F10`：当前通过 gateway 提供目录和章节文本接口，暂未设计入库表。
-- `financial_statement`：新浪三表当前通过 gateway 提供原始长表接口，字段为 `ts_code/report_type/end_date/ann_date/item/value/item_yoy/source`，暂未设计入库表。
+- `financial_statements`：新浪三表原始长表，字段为 `ts_code/report_type/end_date/ann_date/item_order/item/value/value_text/item_yoy/source`。`item_order` 保留原始行序，避免重复科目名覆盖；`value_text` 保留原始值，`value` 尽量转为数字，文本科目保留在 `value_text`。
 
 ## 开发说明
 
@@ -173,5 +186,5 @@ tail -n 120 logs/pipeline.log
 
 ## 下一步
 
-- 设计原始财报 DuckDB 表，并把新浪三表纳入批量采集流程。
+- 基于 `financial_statements` 派生常用财务因子，如营收同比、净利润同比、资产负债率和经营现金流质量。
 - 为东财独有数据补齐龙虎榜、解禁、融资融券、大宗交易、股东户数、分红、研报和新闻模块。

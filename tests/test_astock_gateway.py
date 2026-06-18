@@ -200,6 +200,7 @@ class AStockDataGatewayTest(unittest.TestCase):
             "report_type": ["income_statement"],
             "end_date": pd.to_datetime(["2026-03-31"]),
             "ann_date": [pd.NaT],
+            "item_order": [1],
             "item": ["营业总收入"],
             "value": [100.5],
             "item_yoy": [8.2],

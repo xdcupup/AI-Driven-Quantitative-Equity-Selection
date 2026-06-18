@@ -170,6 +170,7 @@ class SinaFinancialStatementClientTest(unittest.TestCase):
         "report_type",
         "end_date",
         "ann_date",
+        "item_order",
         "item",
         "value",
         "item_yoy",
@@ -233,6 +234,7 @@ class SinaFinancialStatementClientTest(unittest.TestCase):
         self.assertEqual(row["report_type"], "income_statement")
         self.assertEqual(row["end_date"], pd.Timestamp("2026-03-31"))
         self.assertTrue(pd.isna(row["ann_date"]))
+        self.assertEqual(row["item_order"], 1)
         self.assertEqual(row["item"], "营业总收入")
         self.assertEqual(row["value"], 100.5)
         self.assertEqual(row["item_yoy"], 8.2)

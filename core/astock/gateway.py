@@ -91,6 +91,7 @@ class AStockDataGateway:
         self._tushare_pro = None
         self.supports_daily_basic = True
         self.supports_financial_indicators = True
+        self.supports_financial_statements = True
 
     def fetch_daily_kline(
         self,
