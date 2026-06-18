@@ -193,6 +193,29 @@ class AStockDataGatewayTest(unittest.TestCase):
         self.assertEqual(categories.iloc[0]["name"], "公司概况")
         self.assertEqual(section["content"], "平安银行")
 
+    def test_financial_statement_delegates_to_sina_finance_client(self):
+        statements = Mock()
+        statements.fetch_statement.return_value = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "report_type": ["income_statement"],
+            "end_date": pd.to_datetime(["2026-03-31"]),
+            "ann_date": [pd.NaT],
+            "item": ["营业总收入"],
+            "value": [100.5],
+            "item_yoy": [8.2],
+            "source": ["sina_finance"],
+        })
+        gateway = AStockDataGateway(statement_client=statements)
+
+        result = gateway.fetch_financial_statement(
+            "000001.SZ", "income_statement", "20260101", "20261231"
+        )
+
+        statements.fetch_statement.assert_called_once_with(
+            "000001.SZ", "income_statement", "20260101", "20261231"
+        )
+        self.assertEqual(result.iloc[0]["item"], "营业总收入")
+
 
 if __name__ == "__main__":
     unittest.main()

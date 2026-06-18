@@ -4,6 +4,7 @@ import pandas as pd
 
 from core.astock.fundamental.mootdx_finance import MootdxFinanceClient
 from core.astock.fundamental.mootdx_f10 import MootdxF10Client
+from core.astock.fundamental.sina_finance import SinaFinancialStatementClient
 
 
 class MootdxFinanceClientTest(unittest.TestCase):
@@ -161,6 +162,130 @@ class MootdxF10ClientTest(unittest.TestCase):
         self.assertEqual(list(categories.columns), self.CATEGORY_COLUMNS)
         self.assertEqual(section["content"], "")
         self.assertEqual(section["error"], "network down")
+
+
+class SinaFinancialStatementClientTest(unittest.TestCase):
+    EXPECTED_COLUMNS = [
+        "ts_code",
+        "report_type",
+        "end_date",
+        "ann_date",
+        "item",
+        "value",
+        "item_yoy",
+        "source",
+    ]
+
+    def test_fetch_statement_expands_report_list_items(self):
+        class FakeResponse:
+            status_code = 200
+
+            def json(self):
+                return {
+                    "result": {
+                        "data": {
+                            "report_list": {
+                                "20260331": {
+                                    "data": [
+                                        {
+                                            "item_title": "营业总收入",
+                                            "item_value": "100.5",
+                                            "item_tongbi": "8.2",
+                                        },
+                                        {
+                                            "item_title": "空值项",
+                                            "item_value": None,
+                                        },
+                                    ]
+                                },
+                                "20251231": {
+                                    "data": [
+                                        {
+                                            "item_title": "营业总收入",
+                                            "item_value": "90.0",
+                                            "item_tongbi": "",
+                                        }
+                                    ]
+                                },
+                            }
+                        }
+                    }
+                }
+
+        class FakeSession:
+            def get(self, url, params, headers, timeout):
+                self.params = params
+                return FakeResponse()
+
+        session = FakeSession()
+        client = SinaFinancialStatementClient(session=session)
+
+        result = client.fetch_statement(
+            "000001.SZ", "income_statement", "20260101", "20261231"
+        )
+
+        self.assertEqual(session.params["paperCode"], "sz000001")
+        self.assertEqual(session.params["source"], "lrb")
+        self.assertEqual(list(result.columns), self.EXPECTED_COLUMNS)
+        self.assertEqual(len(result), 1)
+        row = result.iloc[0]
+        self.assertEqual(row["ts_code"], "000001.SZ")
+        self.assertEqual(row["report_type"], "income_statement")
+        self.assertEqual(row["end_date"], pd.Timestamp("2026-03-31"))
+        self.assertTrue(pd.isna(row["ann_date"]))
+        self.assertEqual(row["item"], "营业总收入")
+        self.assertEqual(row["value"], 100.5)
+        self.assertEqual(row["item_yoy"], 8.2)
+        self.assertEqual(row["source"], "sina_finance")
+
+    def test_fetch_statement_supports_aliases_and_non_numeric_values(self):
+        class FakeResponse:
+            status_code = 200
+
+            def json(self):
+                return {
+                    "result": {
+                        "data": {
+                            "report_list": {
+                                "20260331": {
+                                    "data": [
+                                        {
+                                            "item_title": "审计意见",
+                                            "item_value": "标准无保留意见",
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+
+        class FakeSession:
+            def get(self, url, params, headers, timeout):
+                self.params = params
+                return FakeResponse()
+
+        session = FakeSession()
+        client = SinaFinancialStatementClient(session=session)
+
+        result = client.fetch_statement("600519.SH", "fzb", "20260101", "20261231")
+
+        self.assertEqual(session.params["paperCode"], "sh600519")
+        self.assertEqual(session.params["source"], "fzb")
+        self.assertEqual(result.iloc[0]["report_type"], "balance_sheet")
+        self.assertEqual(result.iloc[0]["value"], "标准无保留意见")
+
+    def test_fetch_statement_errors_return_stable_empty_schema(self):
+        class BrokenSession:
+            def get(self, url, params, headers, timeout):
+                raise RuntimeError("network down")
+
+        client = SinaFinancialStatementClient(session=BrokenSession())
+
+        result = client.fetch_statement("000001.SZ", "cash_flow", "20260101", "20261231")
+
+        self.assertTrue(result.empty)
+        self.assertEqual(list(result.columns), self.EXPECTED_COLUMNS)
 
 
 if __name__ == "__main__":

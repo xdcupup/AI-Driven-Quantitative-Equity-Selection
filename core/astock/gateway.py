@@ -9,6 +9,7 @@ import pandas as pd
 from core.astock.eastmoney.client import EastMoneyDataClient
 from core.astock.fundamental.mootdx_f10 import MootdxF10Client
 from core.astock.fundamental.mootdx_finance import MootdxFinanceClient
+from core.astock.fundamental.sina_finance import SinaFinancialStatementClient
 from core.astock.market.baidu_kline import BaiduKlineClient
 from core.astock.market.mootdx_client import MootdxMarketClient
 from core.astock.market.stock_list import MootdxStockListClient
@@ -75,6 +76,7 @@ class AStockDataGateway:
         stock_list_client: MootdxStockListClient | None = None,
         finance_client: MootdxFinanceClient | None = None,
         f10_client: MootdxF10Client | None = None,
+        statement_client: SinaFinancialStatementClient | None = None,
     ) -> None:
         self.config = config or {}
         self.mootdx = mootdx_client or MootdxMarketClient()
@@ -85,6 +87,7 @@ class AStockDataGateway:
         self.stock_list = stock_list_client or MootdxStockListClient()
         self.finance = finance_client or MootdxFinanceClient()
         self.f10 = f10_client or MootdxF10Client()
+        self.statements = statement_client or SinaFinancialStatementClient()
         self._tushare_pro = None
         self.supports_daily_basic = True
         self.supports_financial_indicators = True
@@ -169,6 +172,17 @@ class AStockDataGateway:
 
     def fetch_f10_section(self, ts_code: str, section: str) -> dict[str, Any]:
         return self.f10.fetch_section(ts_code, section)
+
+    def fetch_financial_statement(
+        self,
+        ts_code: str,
+        statement_type: str,
+        start_date: str,
+        end_date: str,
+    ) -> pd.DataFrame:
+        return self.statements.fetch_statement(
+            ts_code, statement_type, start_date, end_date
+        )
 
     def compare_market_sources(
         self,
