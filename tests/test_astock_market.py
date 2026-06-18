@@ -5,6 +5,7 @@ import pandas as pd
 
 from core.astock.market.tencent_quote import TencentQuoteClient
 from core.astock.market.baidu_kline import BaiduKlineClient
+from core.astock.market.mootdx_client import MootdxMarketClient
 
 
 class TencentQuoteClientTest(unittest.TestCase):
@@ -308,6 +309,94 @@ class BaiduKlineClientTest(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result.iloc[0]["trade_date"], pd.Timestamp("2026-06-18"))
         self.assertEqual(result.iloc[0]["amount"], 165000.0)
+        self.assertStableColumns(result)
+
+
+class MootdxMarketClientTest(unittest.TestCase):
+    EXPECTED_COLUMNS = [
+        "ts_code",
+        "trade_date",
+        "open",
+        "high",
+        "low",
+        "close",
+        "vol",
+        "amount",
+        "source",
+    ]
+
+    def assertStableColumns(self, result):
+        self.assertEqual(list(result.columns), self.EXPECTED_COLUMNS)
+
+    def test_daily_kline_normalizes_fake_client_rows(self):
+        class FakeQuotes:
+            def bars(self, symbol, market, category, offset):
+                self.call = (symbol, market, category, offset)
+                return pd.DataFrame({
+                    "datetime": ["2026-06-15", "2026-06-16"],
+                    "open": [11.2, 11.1],
+                    "close": [11.1, 10.94],
+                    "high": [11.3, 11.12],
+                    "low": [11.0, 10.91],
+                    "vol": [1000.0, 1200.0],
+                    "amount": [111000.0, 131280.0],
+                })
+
+        fake = FakeQuotes()
+        client = MootdxMarketClient(quotes=fake)
+
+        result = client.fetch_daily_kline("000001.SZ", "20260615", "20260616")
+
+        self.assertEqual(fake.call, ("000001", 0, 4, 1200))
+        self.assertEqual(result.iloc[0]["ts_code"], "000001.SZ")
+        self.assertEqual(result.iloc[1]["close"], 10.94)
+        self.assertEqual(result.iloc[1]["source"], "mootdx")
+        self.assertStableColumns(result)
+
+    def test_daily_kline_skips_bse_in_stage_one(self):
+        client = MootdxMarketClient(quotes=Mock())
+
+        result = client.fetch_daily_kline("832000.BJ", "20260615", "20260616")
+
+        self.assertTrue(result.empty)
+        self.assertStableColumns(result)
+
+    def test_daily_kline_empty_or_none_response_uses_stable_schema(self):
+        class FakeQuotes:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def bars(self, symbol, market, category, offset):
+                return self.payload
+
+        for payload in (None, pd.DataFrame()):
+            with self.subTest(payload=payload):
+                client = MootdxMarketClient(quotes=FakeQuotes(payload))
+
+                result = client.fetch_daily_kline("000001.SZ", "20260615", "20260616")
+
+                self.assertTrue(result.empty)
+                self.assertStableColumns(result)
+
+    def test_daily_kline_drops_invalid_dates(self):
+        class FakeQuotes:
+            def bars(self, symbol, market, category, offset):
+                return pd.DataFrame({
+                    "datetime": ["bad-date", "2026-06-16"],
+                    "open": [11.2, 11.1],
+                    "close": [11.1, 10.94],
+                    "high": [11.3, 11.12],
+                    "low": [11.0, 10.91],
+                    "vol": [1000.0, 1200.0],
+                    "amount": [111000.0, 131280.0],
+                })
+
+        client = MootdxMarketClient(quotes=FakeQuotes())
+
+        result = client.fetch_daily_kline("000001.SZ", "20260615", "20260616")
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0]["trade_date"], pd.Timestamp("2026-06-16"))
         self.assertStableColumns(result)
 
 
