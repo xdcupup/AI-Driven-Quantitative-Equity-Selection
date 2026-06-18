@@ -111,6 +111,27 @@ class AStockDataGatewayTest(unittest.TestCase):
         calendar.fetch_trade_calendar.assert_called_once_with(2026)
         self.assertEqual(result.iloc[0]["source"], "tencent_index_kline")
 
+    def test_stock_list_delegates_when_no_configured_codes(self):
+        stock_list = Mock()
+        stock_list.fetch_stock_list.return_value = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "symbol": ["000001"],
+            "name": ["平安银行"],
+            "exchange": ["SZ"],
+            "area": [None],
+            "industry": [None],
+            "list_status": ["L"],
+            "list_date": [pd.NaT],
+            "delist_date": [pd.NaT],
+            "source": ["mootdx"],
+        })
+        gateway = AStockDataGateway(stock_list_client=stock_list)
+
+        result = gateway.fetch_stock_list()
+
+        stock_list.fetch_stock_list.assert_called_once_with()
+        self.assertEqual(result.iloc[0]["source"], "mootdx")
+
 
 if __name__ == "__main__":
     unittest.main()

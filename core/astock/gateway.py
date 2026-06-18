@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
-from loguru import logger
 
 from core.astock.eastmoney.client import EastMoneyDataClient
 from core.astock.market.baidu_kline import BaiduKlineClient
 from core.astock.market.mootdx_client import MootdxMarketClient
+from core.astock.market.stock_list import MootdxStockListClient
 from core.astock.market.tencent_quote import TencentQuoteClient
 from core.astock.market.trade_calendar import TencentTradeCalendarClient
 from core.astock.symbols import normalize_code
@@ -70,6 +70,7 @@ class AStockDataGateway:
         baidu_client: BaiduKlineClient | None = None,
         eastmoney_client: EastMoneyDataClient | None = None,
         calendar_client: TencentTradeCalendarClient | None = None,
+        stock_list_client: MootdxStockListClient | None = None,
     ) -> None:
         self.config = config or {}
         self.mootdx = mootdx_client or MootdxMarketClient()
@@ -77,6 +78,7 @@ class AStockDataGateway:
         self.baidu = baidu_client or BaiduKlineClient()
         self.eastmoney = eastmoney_client or EastMoneyDataClient()
         self.calendar = calendar_client or TencentTradeCalendarClient()
+        self.stock_list = stock_list_client or MootdxStockListClient()
         self._tushare_pro = None
 
     def fetch_daily_kline(
@@ -138,7 +140,7 @@ class AStockDataGateway:
         configured = self._stock_list_from_config()
         if not configured.empty:
             return configured
-        return self._stock_list_from_mootdx()
+        return self.stock_list.fetch_stock_list()
 
     def fetch_trade_calendar(self, year: int) -> pd.DataFrame:
         return self.calendar.fetch_trade_calendar(year)
@@ -220,41 +222,6 @@ class AStockDataGateway:
         if not rows:
             return pd.DataFrame()
         return pd.DataFrame(rows)
-
-    def _stock_list_from_mootdx(self) -> pd.DataFrame:
-        try:
-            quotes = self.mootdx._get_quotes()
-            frames = []
-            for market in [0, 1]:
-                stocks = quotes.stocks(market=market)
-                if stocks is not None and not stocks.empty:
-                    frames.append(stocks)
-        except Exception as exc:
-            logger.warning(f"mootdx 股票列表获取失败: {exc}")
-            return pd.DataFrame()
-        if not frames:
-            return pd.DataFrame()
-        raw = pd.concat(frames, ignore_index=True)
-        code_col = "code" if "code" in raw.columns else raw.columns[0]
-        name_col = "name" if "name" in raw.columns else code_col
-        rows = []
-        for _, item in raw.iterrows():
-            try:
-                symbol = normalize_code(str(item[code_col]).zfill(6))
-            except ValueError:
-                continue
-            rows.append({
-                "ts_code": symbol.ts_code,
-                "symbol": symbol.symbol,
-                "name": item.get(name_col, symbol.ts_code),
-                "exchange": symbol.exchange,
-                "area": None,
-                "industry": None,
-                "list_status": "L",
-                "list_date": pd.NaT,
-                "delist_date": pd.NaT,
-            })
-        return pd.DataFrame(rows).drop_duplicates("ts_code")
 
     def _compare_close(
         self,

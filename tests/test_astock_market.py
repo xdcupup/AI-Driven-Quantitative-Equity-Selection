@@ -7,6 +7,7 @@ from core.astock.market.tencent_quote import TencentQuoteClient
 from core.astock.market.baidu_kline import BaiduKlineClient
 from core.astock.market.mootdx_client import MootdxMarketClient
 from core.astock.market.trade_calendar import TencentTradeCalendarClient
+from core.astock.market.stock_list import MootdxStockListClient
 
 
 class TencentQuoteClientTest(unittest.TestCase):
@@ -453,6 +454,72 @@ class TencentTradeCalendarClientTest(unittest.TestCase):
         self.assertEqual(result.iloc[0]["source"], "business_day_fallback")
         self.assertTrue((result["trade_date"].dt.year == 2026).all())
         self.assertEqual(result["is_open"].unique().tolist(), [1])
+
+
+class MootdxStockListClientTest(unittest.TestCase):
+    EXPECTED_COLUMNS = [
+        "ts_code",
+        "symbol",
+        "name",
+        "exchange",
+        "area",
+        "industry",
+        "list_status",
+        "list_date",
+        "delist_date",
+        "source",
+    ]
+
+    def test_fetch_stock_list_normalizes_and_filters_a_shares(self):
+        class FakeQuotes:
+            def stocks(self, market):
+                if market == 0:
+                    return pd.DataFrame({
+                        "code": ["000001", "002594", "000015", "000022", "159915", "200001"],
+                        "name": ["平安银行", "比亚迪\x00", "红利指数", "沪公司债", "创业板ETF", "深物业B"],
+                    })
+                return pd.DataFrame({
+                    "code": ["600519", "688001", "510300", "900901"],
+                    "name": ["贵州茅台", "华兴源创", "沪深300ETF", "云赛B股"],
+                })
+
+        client = MootdxStockListClient(quotes=FakeQuotes())
+
+        result = client.fetch_stock_list()
+
+        self.assertEqual(list(result.columns), self.EXPECTED_COLUMNS)
+        self.assertEqual(
+            result[["ts_code", "name", "exchange"]].values.tolist(),
+            [
+                ["000001.SZ", "平安银行", "SZ"],
+                ["002594.SZ", "比亚迪", "SZ"],
+                ["600519.SH", "贵州茅台", "SH"],
+                ["688001.SH", "华兴源创", "SH"],
+            ],
+        )
+        self.assertEqual(result["list_status"].unique().tolist(), ["L"])
+        self.assertEqual(result["source"].unique().tolist(), ["mootdx"])
+
+    def test_fetch_stock_list_deduplicates_and_returns_stable_empty_on_error(self):
+        class DuplicateQuotes:
+            def stocks(self, market):
+                if market == 0:
+                    return pd.DataFrame({"code": ["000001"], "name": ["平安银行"]})
+                return pd.DataFrame({"code": ["000001"], "name": ["重复平安"]})
+
+        result = MootdxStockListClient(quotes=DuplicateQuotes()).fetch_stock_list()
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0]["ts_code"], "000001.SZ")
+
+        class BrokenQuotes:
+            def stocks(self, market):
+                raise RuntimeError("network down")
+
+        empty = MootdxStockListClient(quotes=BrokenQuotes()).fetch_stock_list()
+
+        self.assertTrue(empty.empty)
+        self.assertEqual(list(empty.columns), self.EXPECTED_COLUMNS)
 
 
 if __name__ == "__main__":
