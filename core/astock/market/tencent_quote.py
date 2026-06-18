@@ -8,6 +8,31 @@ from core.astock.symbols import normalize_code
 
 UA = "Mozilla/5.0"
 
+QUOTE_COLUMNS = [
+    "ts_code",
+    "symbol",
+    "name",
+    "price",
+    "last_close",
+    "open",
+    "change_amt",
+    "change_pct",
+    "high",
+    "low",
+    "amount",
+    "turnover_rate",
+    "pe_ttm",
+    "amplitude_pct",
+    "total_mv",
+    "circ_mv",
+    "pb",
+    "limit_up",
+    "limit_down",
+    "volume_ratio",
+    "pe_static",
+    "source",
+]
+
 
 def _to_float(value: str) -> float:
     try:
@@ -34,6 +59,9 @@ class TencentQuoteClient:
             return resp.read()
 
     def fetch_quotes(self, codes: list[str]) -> pd.DataFrame:
+        if not codes:
+            return pd.DataFrame(columns=QUOTE_COLUMNS)
+
         symbols = [normalize_code(code) for code in codes]
         url = "https://qt.gtimg.cn/q=" + ",".join(s.tencent_code for s in symbols)
         text = self.opener(url).decode("gbk")
@@ -70,4 +98,4 @@ class TencentQuoteClient:
                 "pe_static": _to_float(_value_at(values, 52)),
                 "source": "tencent",
             })
-        return pd.DataFrame(rows)
+        return pd.DataFrame(rows, columns=QUOTE_COLUMNS)
