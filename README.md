@@ -217,6 +217,30 @@ tail -n 120 logs/pipeline.log
 
 题材验证字段随候选结果返回，暂不计入 `total_score` 排序。
 
+### 短线候选每日评分流水线
+
+每日评分入口已接入主流水线，代码在 `core/scoring/pipeline.py` 和 `pipeline.py` 的 `_step_hot_candidate_scores`。当前基础候选口径为：目标交易日 `daily_kline.pct_chg >= min_pct_chg`，默认 9%，即优先从涨停/接近涨停样本里生成短线候选。
+
+评分前会尽量补充：
+
+- `daily_kline`：开盘溢价、量比、连板高度。
+- `daily_basic`：换手率、流通市值。
+- `stock_fund_flow_daily`：DDX、DDY、主力净流入比例。
+- `hot_theme_daily` / `hot_theme_stocks`：板块涨幅和板块内热度。
+
+打开配置：
+
+```yaml
+scoring:
+  hot_candidate:
+    enabled: true
+    strategy_name: hot_candidate_v1
+    min_pct_chg: 9.0
+    lookback_days: 10
+```
+
+运行主流水线后，评分结果写入 `hot_candidate_scores`，可直接用 `--from-db` 回测。
+
 ### 短线候选回测
 
 评分结果可以直接进入回测，入口为 `scripts/run_hot_candidate_backtest.py`。当前版本支持从 CSV 读取 `score_hot_candidates` 的输出，也支持从 DuckDB 的 `hot_candidate_scores` 表读取历史评分快照，并从 `daily_kline` 读取对应股票 K 线。

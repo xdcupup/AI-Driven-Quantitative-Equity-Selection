@@ -243,6 +243,7 @@ class Pipeline:
             self._step_dragon_tiger(stock_codes, target_date)
             self._step_fund_flow(stock_codes, target_date)
             self._step_hot_themes(target_date)
+            self._step_hot_candidate_scores(target_date)
             quality_report = self._step_quality_report(target_date)
             self._step_source_audit(stock_codes, target_date)
             self._step_maintenance()
@@ -979,6 +980,23 @@ class Pipeline:
                 all_rows.append(df)
         if all_rows:
             self.db.upsert_fund_flow(pd.concat(all_rows, ignore_index=True))
+
+    def _step_hot_candidate_scores(self, target_date: str):
+        cfg = self.config.get("scoring", {}).get("hot_candidate", {})
+        if not cfg.get("enabled", False):
+            return
+
+        from core.scoring.pipeline import build_hot_candidate_scores
+
+        logger.info("生成短线候选评分...")
+        build_hot_candidate_scores(
+            self.db,
+            target_date or datetime.now().strftime("%Y%m%d"),
+            strategy_name=cfg.get("strategy_name", "hot_candidate_v1"),
+            min_pct_chg=float(cfg.get("min_pct_chg", 9.0)),
+            lookback_days=int(cfg.get("lookback_days", 10)),
+            persist=True,
+        )
 
     def _step_source_audit(self, stock_codes: list, target_date: str):
         """对腾讯和配置的第二数据源做轻量抽样对账。"""

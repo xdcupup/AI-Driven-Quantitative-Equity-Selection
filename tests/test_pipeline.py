@@ -151,6 +151,7 @@ class FakeDB:
         self.name_history_batches = []
         self.audit_batches = []
         self.daily_basic_batches = []
+        self.hot_candidate_batches = []
 
     def upsert_financial(self, df):
         self.financial_batches.append(df.copy())
@@ -250,6 +251,60 @@ class FakeDB:
     def upsert_daily_basic(self, df):
         self.daily_basic_batches.append(df.copy())
         return len(df)
+
+    def upsert_hot_candidate_scores(self, df, strategy_name="hot_candidate_v1"):
+        self.hot_candidate_batches.append((strategy_name, df.copy()))
+        return len(df)
+
+    def query_sql(self, sql, params=None):
+        if "FROM daily_kline k" in sql:
+            return pd.DataFrame({
+                "ts_code": ["000001.SZ"],
+                "trade_date": pd.to_datetime(["2026-06-19"]),
+                "open": [10.5],
+                "high": [11.0],
+                "low": [10.3],
+                "close": [11.0],
+                "vol": [2000.0],
+                "amount": [420000000.0],
+                "pct_chg": [10.0],
+                "turnover_rate": [12.0],
+                "volume_ratio": [2.0],
+                "circ_mv": [8000000000.0],
+                "total_mv": [12000000000.0],
+            })
+        if "FROM daily_kline" in sql:
+            return pd.DataFrame({
+                "ts_code": ["000001.SZ", "000001.SZ"],
+                "trade_date": pd.to_datetime(["2026-06-18", "2026-06-19"]),
+                "open": [10.0, 10.5],
+                "close": [10.0, 11.0],
+                "vol": [1000.0, 2000.0],
+                "pct_chg": [1.0, 10.0],
+            })
+        if "FROM stock_fund_flow_daily" in sql:
+            return pd.DataFrame({
+                "ts_code": ["000001.SZ"],
+                "trade_date": pd.to_datetime(["2026-06-19"]),
+                "ddx": [0.8],
+                "ddy": [0.7],
+                "main_net_ratio": [6.0],
+            })
+        if "FROM hot_theme_daily" in sql:
+            return pd.DataFrame({
+                "theme_code": ["T1"],
+                "trade_date": pd.to_datetime(["2026-06-19"]),
+                "theme_name": ["AI"],
+                "rank": [1],
+                "pct_chg": [3.2],
+            })
+        if "FROM hot_theme_stocks" in sql:
+            return pd.DataFrame({
+                "theme_code": ["T1", "T1", "T1"],
+                "trade_date": pd.to_datetime(["2026-06-19"] * 3),
+                "ts_code": ["000001.SZ", "000003.SZ", "000004.SZ"],
+            })
+        return pd.DataFrame()
 
     def upsert_stock_name_history(self, df):
         self.name_history_batches.append(df.copy())
@@ -458,6 +513,25 @@ class PipelineResearchDataTest(unittest.TestCase):
         detail, summary = pipeline.db.ic_batches[0]
         self.assertEqual(len(detail), 4)
         self.assertEqual(set(summary["factor_name"]), {"return_20d", "ma20_bias"})
+
+    def test_hot_candidate_score_step_builds_and_upserts_scores(self):
+        pipeline = self.make_pipeline({
+            "scoring": {
+                "hot_candidate": {
+                    "enabled": True,
+                    "strategy_name": "hot_candidate_v1",
+                    "min_pct_chg": 9.0,
+                }
+            }
+        })
+
+        pipeline._step_hot_candidate_scores("2026-06-19")
+
+        self.assertEqual(len(pipeline.db.hot_candidate_batches), 1)
+        strategy_name, saved = pipeline.db.hot_candidate_batches[0]
+        self.assertEqual(strategy_name, "hot_candidate_v1")
+        self.assertEqual(saved.iloc[0]["ts_code"], "000001.SZ")
+        self.assertEqual(saved.iloc[0]["source"], "hot_candidate_pipeline")
 
     def test_stock_name_history_step_fetches_and_upserts_enabled_batch(self):
         pipeline = self.make_pipeline({

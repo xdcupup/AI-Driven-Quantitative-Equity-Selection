@@ -100,6 +100,13 @@ evaluation:
     label_column: forward_return_20d
     method: spearman
 
+scoring:
+  hot_candidate:
+    enabled: false           # 生成短线候选评分并写入 hot_candidate_scores
+    strategy_name: hot_candidate_v1
+    min_pct_chg: 9.0         # 基础候选：当日涨幅 >= 9%
+    lookback_days: 10        # 计算开盘溢价、连板高度等需要的回看窗口
+
 # --- 数据存储 ---
 storage:
   db_path: "./data/quant.duckdb"      # DuckDB 数据库文件路径
