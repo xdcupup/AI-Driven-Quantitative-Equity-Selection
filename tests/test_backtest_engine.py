@@ -144,5 +144,33 @@ class BacktestEngineTest(unittest.TestCase):
         self.assertGreater(result["spread"], 0)
 
 
+class FactorNeutralizerTest(unittest.TestCase):
+    def test_industry_neutral_subtracts_group_mean(self):
+        from core.backtest.neutralizer import industry_neutralize
+        df = pd.DataFrame({
+            "ts_code": ["A", "B", "C", "D"],
+            "trade_date": pd.Timestamp("2024-01-02"),
+            "factor_value": [10.0, 20.0, 30.0, 40.0],
+            "industry": ["银行", "银行", "科技", "科技"],
+        })
+        result = industry_neutralize(df, "factor_value", "industry")
+        # 银行 mean=15, 科技 mean=35
+        self.assertAlmostEqual(result.loc[0, "factor_value_neutral"], -5.0)
+        self.assertAlmostEqual(result.loc[3, "factor_value_neutral"], 5.0)
+
+    def test_market_cap_neutral_residualizes(self):
+        from core.backtest.neutralizer import market_cap_neutralize
+        df = pd.DataFrame({
+            "ts_code": ["A", "B", "C"],
+            "trade_date": pd.Timestamp("2024-01-02"),
+            "factor_value": [1.0, 2.0, 3.0],
+            "log_market_cap": [10.0, 11.0, 12.0],
+        })
+        result = market_cap_neutralize(df, "factor_value", "log_market_cap")
+        self.assertIn("factor_value_neutral", result.columns)
+        # Values should be residuals (not original)
+        self.assertNotAlmostEqual(result.loc[0, "factor_value_neutral"], 1.0)
+
+
 if __name__ == "__main__":
     unittest.main()
