@@ -217,6 +217,30 @@ tail -n 120 logs/pipeline.log
 
 题材验证字段随候选结果返回，暂不计入 `total_score` 排序。
 
+### 短线候选回测
+
+评分结果可以直接进入回测，入口为 `scripts/run_hot_candidate_backtest.py`。当前版本从 CSV 读取 `score_hot_candidates` 的输出，并从 DuckDB 的 `daily_kline` 读取对应股票 K 线。
+
+CSV 至少需要包含：
+
+- `ts_code`
+- `trade_date`
+- `total_score`
+- `is_rejected`（可选，有则自动剔除）
+
+示例：
+
+```bash
+python scripts/run_hot_candidate_backtest.py \
+  --scores-csv data/hot_candidates/scored.csv \
+  --start 2026-06-01 \
+  --end 2026-06-19 \
+  --min-score 60 \
+  --top-n 10 \
+  --max-positions 10 \
+  --output data/backtest/hot_candidate_20260619.json
+```
+
 ## 开发说明
 
 新代码优先放在 `core/astock` 下。旧 `core/data_fetcher.py` 只作为 legacy 兼容入口存在，不再继续扩展 AKShare 或 Tushare 路径。
@@ -232,5 +256,5 @@ tail -n 120 logs/pipeline.log
 ## 下一步
 
 - 补齐短线评分器需要的数据源：竞价开盘、DDX/DDY、封单、板块涨停数、连板高度和题材证据链。
-- 建立简单回测模块，验证打分器的分层收益和回撤。
+- 持久化短线候选评分结果，形成“候选生成 -> 评分 -> 回测 -> 复盘”的闭环。
 - 为东财独有数据补齐龙虎榜、解禁、融资融券、大宗交易、股东户数、分红、研报和新闻模块。

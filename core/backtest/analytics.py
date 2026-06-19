@@ -37,7 +37,7 @@ def compute_metrics(
         ann_return = 0.0
 
     mean_ret = float(np.mean(rets))
-    std_ret = float(np.std(rets, ddof=1))
+    std_ret = float(np.std(rets, ddof=1)) if n_days > 1 else 0.0
     sharpe = float((mean_ret / std_ret * math.sqrt(trading_days_per_year)) if std_ret > 0 else 0.0)
 
     cummax = np.maximum.accumulate(navs)
