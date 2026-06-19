@@ -139,6 +139,30 @@ class QuantDBTest(unittest.TestCase):
         self.assertEqual(saved.iloc[0]["revenue_yoy"], 20.0)
         self.assertEqual(saved.iloc[0]["roe"], 12.0)
 
+    def test_upsert_technical_factors_and_query_latest(self):
+        factors = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "trade_date": pd.to_datetime(["2026-06-18"]),
+            "return_5d": [3.0],
+            "return_20d": [12.0],
+            "return_60d": [25.0],
+            "volatility_20d": [1.5],
+            "ma20_bias": [2.2],
+            "ma60_bias": [6.0],
+            "max_drawdown_60d": [-8.0],
+            "volume_ratio_20d": [1.3],
+            "liquidity_20d": [100000000.0],
+            "source": ["daily_kline"],
+        })
+
+        self.db.upsert_technical_factors(factors)
+
+        saved = self.db.query_latest_technical_factors("2026-06-18")
+
+        self.assertEqual(saved.iloc[0]["ts_code"], "000001.SZ")
+        self.assertEqual(saved.iloc[0]["return_20d"], 12.0)
+        self.assertEqual(saved.iloc[0]["max_drawdown_60d"], -8.0)
+
     def test_query_financial_statements_accepts_compact_dates(self):
         statements = pd.DataFrame({
             "ts_code": ["000001.SZ"],

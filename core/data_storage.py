@@ -190,6 +190,29 @@ CREATE INDEX IF NOT EXISTS idx_fin_factor_ann_date
 ON financial_factors (ann_date);
 
 -- ====================================================================
+-- 技术/量价因子表（一行一股票一交易日）
+-- ====================================================================
+CREATE TABLE IF NOT EXISTS technical_factors (
+    ts_code       VARCHAR NOT NULL,
+    trade_date    DATE NOT NULL,
+    return_5d     DOUBLE,
+    return_20d    DOUBLE,
+    return_60d    DOUBLE,
+    volatility_20d DOUBLE,
+    ma20_bias     DOUBLE,
+    ma60_bias     DOUBLE,
+    max_drawdown_60d DOUBLE,
+    volume_ratio_20d DOUBLE,
+    liquidity_20d DOUBLE,
+    source        VARCHAR,
+    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (ts_code, trade_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_technical_factor_date
+ON technical_factors (trade_date);
+
+-- ====================================================================
 -- 股票名称与 ST 历史（用于历史过滤，降低幸存者/状态偏差）
 -- ====================================================================
 CREATE TABLE IF NOT EXISTS stock_name_history (
@@ -408,6 +431,12 @@ class QuantDB:
         )
         self.conn.execute(
             "ALTER TABLE financial_factors ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        )
+        self.conn.execute(
+            "ALTER TABLE technical_factors ADD COLUMN IF NOT EXISTS source VARCHAR"
+        )
+        self.conn.execute(
+            "ALTER TABLE technical_factors ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
         )
 
         logger.info("数据库 Schema 初始化完成")
@@ -708,6 +737,75 @@ class QuantDB:
         logger.debug(f"财务因子 UPSERT: {count} 行")
         return count
 
+    def upsert_technical_factors(self, df: pd.DataFrame) -> int:
+        """写入技术/量价因子。"""
+        if df.empty:
+            return 0
+
+        required = {"ts_code", "trade_date"}
+        missing = required - set(df.columns)
+        if missing:
+            logger.error(f"技术因子数据缺少必要字段: {missing}")
+            return 0
+
+        df = df.copy()
+        df["trade_date"] = pd.to_datetime(df["trade_date"])
+        if "source" not in df.columns:
+            df["source"] = None
+
+        upsert_cols = [
+            "ts_code",
+            "trade_date",
+            "return_5d",
+            "return_20d",
+            "return_60d",
+            "volatility_20d",
+            "ma20_bias",
+            "ma60_bias",
+            "max_drawdown_60d",
+            "volume_ratio_20d",
+            "liquidity_20d",
+            "source",
+        ]
+        for col in upsert_cols:
+            if col not in df.columns:
+                df[col] = None
+        numeric_cols = [
+            col for col in upsert_cols
+            if col not in {"ts_code", "trade_date", "source"}
+        ]
+        for col in numeric_cols:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        self.conn.register("_tmp_technical_factors", df[upsert_cols])
+        count = self.conn.execute("""
+            INSERT INTO technical_factors (
+                ts_code, trade_date, return_5d, return_20d, return_60d,
+                volatility_20d, ma20_bias, ma60_bias, max_drawdown_60d,
+                volume_ratio_20d, liquidity_20d, source
+            )
+            SELECT
+                ts_code, trade_date, return_5d, return_20d, return_60d,
+                volatility_20d, ma20_bias, ma60_bias, max_drawdown_60d,
+                volume_ratio_20d, liquidity_20d, source
+            FROM _tmp_technical_factors
+            ON CONFLICT (ts_code, trade_date) DO UPDATE SET
+                return_5d = EXCLUDED.return_5d,
+                return_20d = EXCLUDED.return_20d,
+                return_60d = EXCLUDED.return_60d,
+                volatility_20d = EXCLUDED.volatility_20d,
+                ma20_bias = EXCLUDED.ma20_bias,
+                ma60_bias = EXCLUDED.ma60_bias,
+                max_drawdown_60d = EXCLUDED.max_drawdown_60d,
+                volume_ratio_20d = EXCLUDED.volume_ratio_20d,
+                liquidity_20d = EXCLUDED.liquidity_20d,
+                source = EXCLUDED.source,
+                updated_at = now()
+        """).fetchone()[0]
+
+        logger.debug(f"技术因子 UPSERT: {count} 行")
+        return count
+
     def upsert_stock_name_history(self, df: pd.DataFrame) -> int:
         """写入股票名称/ST 历史。"""
         if df.empty:
@@ -906,6 +1004,19 @@ class QuantDB:
             ) = 1
             ORDER BY ts_code
         """, [as_of_date]).fetchdf()
+
+    def query_latest_technical_factors(self, as_of_date: str) -> pd.DataFrame:
+        """查询截至指定日期的最新技术/量价因子。"""
+        return self.conn.execute("""
+            SELECT *
+            FROM technical_factors
+            WHERE trade_date <= ?::DATE
+            QUALIFY ROW_NUMBER() OVER (
+                PARTITION BY ts_code
+                ORDER BY trade_date DESC
+            ) = 1
+            ORDER BY ts_code
+        """, [_date_param(as_of_date)]).fetchdf()
 
     def get_latest_trade_date(self) -> Optional[date]:
         """获取数据库中最近的交易日"""

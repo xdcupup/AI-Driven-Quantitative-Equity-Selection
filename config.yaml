@@ -53,6 +53,11 @@ fetch:
     max_stocks_per_run: null # 留空=全量；调试可限制只跑部分股票
   factor_derivation:
     enabled: false           # 从原始三表派生财务因子，可在三表入库后开启
+  technical_factors:
+    enabled: false           # 从 daily_kline 派生技术/量价因子
+    lookback_days: 120       # 至少覆盖 60 日窗口，留出自然日冗余
+    batch_size: 100          # 每 N 只股票批量写入一次
+    max_stocks_per_run: null # 留空=全量；调试可限制只跑部分股票
   # 资金流向（可选）
   money_flow:
     enabled: false

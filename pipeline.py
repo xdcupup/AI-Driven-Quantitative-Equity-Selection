@@ -235,6 +235,7 @@ class Pipeline:
             self._step_financial_indicators(stock_codes, target_date)
             self._step_financial_statements(stock_codes, target_date, full_refresh)
             self._step_financial_factors(target_date)
+            self._step_technical_factors(stock_codes, target_date)
             quality_report = self._step_quality_report(target_date)
             self._step_source_audit(stock_codes, target_date)
             self._step_maintenance()
@@ -730,6 +731,44 @@ class Pipeline:
         factors = derive_financial_factors(statements)
         if not factors.empty:
             self.db.upsert_financial_factors(factors)
+
+    def _step_technical_factors(self, stock_codes: list, target_date: str):
+        """按配置从日 K 派生技术/量价因子。"""
+        factor_cfg = self.config.get("fetch", {}).get("technical_factors", {})
+        if not factor_cfg.get("enabled", False):
+            return
+
+        from core.factors.technical import derive_technical_factors
+
+        end_date = (
+            target_date or datetime.now().strftime("%Y%m%d")
+        ).replace("-", "")
+        lookback_days = int(factor_cfg.get("lookback_days", 120))
+        batch_size = int(factor_cfg.get("batch_size", 100))
+        max_stocks = factor_cfg.get("max_stocks_per_run")
+        codes = stock_codes[: int(max_stocks)] if max_stocks else stock_codes
+        start_date = (
+            pd.Timestamp(end_date) - pd.Timedelta(days=lookback_days)
+        ).strftime("%Y%m%d")
+
+        logger.info("派生技术/量价因子...")
+        batch = []
+        for i, ts_code in enumerate(codes, start=1):
+            kline = self.db.query_daily_range(
+                ts_code,
+                start_date,
+                end_date,
+                columns="ts_code, trade_date, close, vol, amount",
+            )
+            if not kline.empty:
+                factors = derive_technical_factors(kline)
+                if not factors.empty:
+                    batch.append(factors)
+            if len(batch) >= batch_size or i == len(codes):
+                if batch:
+                    merged = pd.concat(batch, ignore_index=True)
+                    self.db.upsert_technical_factors(merged)
+                    batch.clear()
 
     def _step_source_audit(self, stock_codes: list, target_date: str):
         """对腾讯和配置的第二数据源做轻量抽样对账。"""

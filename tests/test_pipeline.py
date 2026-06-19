@@ -145,6 +145,7 @@ class FakeDB:
         self.financial_batches = []
         self.statement_batches = []
         self.factor_batches = []
+        self.technical_factor_batches = []
         self.name_history_batches = []
         self.audit_batches = []
         self.daily_basic_batches = []
@@ -203,6 +204,22 @@ class FakeDB:
 
     def upsert_financial_factors(self, df):
         self.factor_batches.append(df.copy())
+        return len(df)
+
+    def query_daily_range(self, ts_code, start_date, end_date, columns="*"):
+        dates = pd.date_range("2026-01-01", periods=70, freq="B")
+        close = [100.0 + i for i in range(70)]
+        vol = [1000.0 + i * 10 for i in range(70)]
+        return pd.DataFrame({
+            "ts_code": [ts_code] * 70,
+            "trade_date": dates,
+            "close": close,
+            "vol": vol,
+            "amount": [close[i] * vol[i] for i in range(70)],
+        })
+
+    def upsert_technical_factors(self, df):
+        self.technical_factor_batches.append(df.copy())
         return len(df)
 
     def upsert_daily_basic(self, df):
@@ -362,6 +379,21 @@ class PipelineResearchDataTest(unittest.TestCase):
 
         self.assertEqual(pipeline.fetcher.daily_basic_calls, ["20260616"])
         self.assertEqual(len(pipeline.db.daily_basic_batches), 1)
+
+    def test_technical_factor_step_derives_and_upserts_for_codes(self):
+        pipeline = self.make_pipeline({
+            "fetch": {
+                "technical_factors": {"enabled": True, "lookback_days": 120}
+            }
+        })
+
+        pipeline._step_technical_factors(["000001.SZ"], "2026-06-18")
+
+        self.assertEqual(len(pipeline.db.technical_factor_batches), 1)
+        factors = pipeline.db.technical_factor_batches[0]
+        self.assertFalse(factors.empty)
+        self.assertIn("return_20d", factors.columns)
+        self.assertEqual(factors.iloc[-1]["source"], "daily_kline")
 
     def test_stock_name_history_step_fetches_and_upserts_enabled_batch(self):
         pipeline = self.make_pipeline({
