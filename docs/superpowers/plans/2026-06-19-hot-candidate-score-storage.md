@@ -16,21 +16,21 @@
 - Modify: `core/data_storage.py`
 - Modify: `tests/test_data_storage.py`
 
-- [ ] **Step 1: Write the failing storage test**
+- [x] **Step 1: Write the failing storage test**
 
 Add a test that creates scored rows, writes them with `upsert_hot_candidate_scores`, and queries them with `query_hot_candidate_scores`.
 
-- [ ] **Step 2: Run the targeted test and verify RED**
+- [x] **Step 2: Run the targeted test and verify RED**
 
 Run: `.venv/bin/python -m unittest tests.test_data_storage.QuantDBTest.test_upsert_and_query_hot_candidate_scores -v`
 
 Expected: fail with missing `upsert_hot_candidate_scores`.
 
-- [ ] **Step 3: Add schema and QuantDB methods**
+- [x] **Step 3: Add schema and QuantDB methods**
 
 Add `hot_candidate_scores` to `SCHEMA_SQL`, then implement `upsert_hot_candidate_scores` and `query_hot_candidate_scores`.
 
-- [ ] **Step 4: Run targeted storage test and verify GREEN**
+- [x] **Step 4: Run targeted storage test and verify GREEN**
 
 Run: `.venv/bin/python -m unittest tests.test_data_storage.QuantDBTest.test_upsert_and_query_hot_candidate_scores -v`
 
@@ -42,21 +42,21 @@ Expected: pass.
 - Modify: `scripts/run_hot_candidate_backtest.py`
 - Modify: `tests/test_hot_candidate_backtest.py`
 
-- [ ] **Step 1: Write failing CLI argument test**
+- [x] **Step 1: Write failing CLI argument test**
 
 Add a test for mutually exclusive score inputs and for DB score loading behavior through a small helper function.
 
-- [ ] **Step 2: Run targeted test and verify RED**
+- [x] **Step 2: Run targeted test and verify RED**
 
 Run: `.venv/bin/python -m unittest tests.test_hot_candidate_backtest -v`
 
 Expected: fail with missing helper/behavior.
 
-- [ ] **Step 3: Implement DB input mode**
+- [x] **Step 3: Implement DB input mode**
 
 Add `--from-db`, `--strategy-name`, and mutual exclusion with `--scores-csv`. Query scores via `QuantDB.query_hot_candidate_scores`.
 
-- [ ] **Step 4: Run targeted hot-candidate tests and verify GREEN**
+- [x] **Step 4: Run targeted hot-candidate tests and verify GREEN**
 
 Run: `.venv/bin/python -m unittest tests.test_hot_candidate_backtest -v`
 
@@ -67,11 +67,11 @@ Expected: pass.
 **Files:**
 - Modify: `README.md`
 
-- [ ] **Step 1: Update README**
+- [x] **Step 1: Update README**
 
 Document `--from-db` usage while keeping the CSV example.
 
-- [ ] **Step 2: Run verification**
+- [x] **Step 2: Run verification**
 
 Run:
 
@@ -82,6 +82,6 @@ Run:
 
 Expected: all commands exit 0.
 
-- [ ] **Step 3: Commit and push**
+- [x] **Step 3: Commit and push**
 
 Commit the implementation and push `refactor/provider-stage1`.

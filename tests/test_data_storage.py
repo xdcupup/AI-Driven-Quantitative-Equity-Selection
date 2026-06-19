@@ -220,6 +220,46 @@ class QuantDBTest(unittest.TestCase):
         self.assertEqual(saved_detail.iloc[0]["sample_count"], 100)
         self.assertEqual(saved_summary.iloc[0]["ic_ir"], 2.5)
 
+    def test_upsert_and_query_hot_candidate_scores(self):
+        scores = pd.DataFrame({
+            "ts_code": ["000001.SZ", "000002.SZ", "000003.SZ"],
+            "trade_date": pd.to_datetime(["2026-06-18"] * 3),
+            "buyability_score": [20, 17, 0],
+            "capital_persistence_score": [18, 12, 1],
+            "seal_quality_score": [15, 8, 2],
+            "support_quality_score": [15, 9, 2],
+            "safety_filter_score": [10, 8, 0],
+            "liquidity_structure_score": [10, 8, 2],
+            "sector_resonance_score": [8, 3, 0],
+            "leader_status_score": [4, 1, 1],
+            "theme_validation_score": [6.0, None, None],
+            "total_score": [100, 66, 8],
+            "score_level": ["S", "B", "REJECT"],
+            "is_rejected": [False, False, True],
+            "score_reason": ["", "missing:seal_float_mv_ratio", "safety_reject"],
+        })
+
+        self.db.upsert_hot_candidate_scores(scores, strategy_name="hot_candidate_v1")
+        saved = self.db.query_hot_candidate_scores(
+            "20260601",
+            "20260630",
+            strategy_name="hot_candidate_v1",
+            min_score=60,
+        )
+        saved_with_rejected = self.db.query_hot_candidate_scores(
+            "2026-06-01",
+            "2026-06-30",
+            strategy_name="hot_candidate_v1",
+            include_rejected=True,
+        )
+
+        self.assertEqual(saved["ts_code"].tolist(), ["000001.SZ", "000002.SZ"])
+        self.assertEqual(saved["total_score"].tolist(), [100, 66])
+        self.assertEqual(saved.iloc[0]["strategy_name"], "hot_candidate_v1")
+        self.assertEqual(saved.iloc[0]["source"], "hot_candidate_scoring")
+        self.assertFalse(saved["is_rejected"].any())
+        self.assertEqual(len(saved_with_rejected), 3)
+
     def test_query_financial_statements_accepts_compact_dates(self):
         statements = pd.DataFrame({
             "ts_code": ["000001.SZ"],

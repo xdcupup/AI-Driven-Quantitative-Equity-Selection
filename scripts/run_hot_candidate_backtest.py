@@ -47,12 +47,26 @@ def _serializable_report(report: dict) -> dict:
     }
 
 
+def load_scores_for_backtest(db: QuantDB, args: argparse.Namespace):
+    if args.from_db:
+        return db.query_hot_candidate_scores(
+            args.start,
+            args.end,
+            strategy_name=args.strategy_name,
+            min_score=args.min_score,
+        )
+    return load_scored_candidates_csv(args.scores_csv)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Hot-candidate scoring backtest runner")
-    parser.add_argument("--scores-csv", required=True, help="CSV exported from score_hot_candidates")
+    score_input = parser.add_mutually_exclusive_group(required=True)
+    score_input.add_argument("--scores-csv", help="CSV exported from score_hot_candidates")
+    score_input.add_argument("--from-db", action="store_true", help="Read scores from hot_candidate_scores")
     parser.add_argument("--start", required=True, help="Start date, e.g. 2026-06-01")
     parser.add_argument("--end", default=None, help="End date (default: today)")
     parser.add_argument("--config", default="config.yaml", help="Config YAML path")
+    parser.add_argument("--strategy-name", default="hot_candidate_v1", help="Score strategy name for DB mode")
     parser.add_argument("--min-score", type=float, default=60.0, help="Minimum total score")
     parser.add_argument("--score-column", default="total_score", help="Score column to rank by")
     parser.add_argument("--top-n", type=int, default=10, help="Daily selected candidate count")
@@ -66,10 +80,10 @@ def main() -> int:
     with open(args.config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
 
-    scored = load_scored_candidates_csv(args.scores_csv)
     db = QuantDB(cfg["storage"]["db_path"], cfg)
     db.init_schema()
     try:
+        scored = load_scores_for_backtest(db, args)
         ts_codes = sorted(scored["ts_code"].dropna().astype(str).unique().tolist())
         kline = query_kline_for_backtest(db, args.start, args.end, ts_codes=ts_codes)
     finally:
@@ -86,7 +100,8 @@ def main() -> int:
 
     print("========== 热榜候选回测结果 ==========")
     print(f"区间:        {args.start} -> {args.end}")
-    print(f"评分文件:    {args.scores_csv}")
+    score_source = "DB" if args.from_db else args.scores_csv
+    print(f"评分来源:    {score_source}")
     print(f"候选行数:    {len(scored)}")
     print(f"入选信号:    {report.get('selected_count', 0)}")
     print(f"K线行数:     {len(kline)}")

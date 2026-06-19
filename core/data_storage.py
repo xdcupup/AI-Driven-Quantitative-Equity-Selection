@@ -231,6 +231,34 @@ CREATE INDEX IF NOT EXISTS idx_factor_labels_date
 ON factor_labels (trade_date);
 
 -- ====================================================================
+-- 短线候选评分快照（一行一股票一信号日一策略版本）
+-- ====================================================================
+CREATE TABLE IF NOT EXISTS hot_candidate_scores (
+    trade_date    DATE NOT NULL,
+    ts_code       VARCHAR NOT NULL,
+    strategy_name VARCHAR NOT NULL,
+    buyability_score INTEGER,
+    capital_persistence_score INTEGER,
+    seal_quality_score INTEGER,
+    support_quality_score INTEGER,
+    safety_filter_score INTEGER,
+    liquidity_structure_score INTEGER,
+    sector_resonance_score INTEGER,
+    leader_status_score INTEGER,
+    theme_validation_score DOUBLE,
+    total_score   DOUBLE,
+    score_level   VARCHAR,
+    is_rejected   BOOLEAN DEFAULT FALSE,
+    score_reason  VARCHAR,
+    source        VARCHAR,
+    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (trade_date, ts_code, strategy_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hot_candidate_score_date
+ON hot_candidate_scores (trade_date, strategy_name);
+
+-- ====================================================================
 -- 因子 IC/IR 评估结果
 -- ====================================================================
 CREATE TABLE IF NOT EXISTS factor_ic_detail (
@@ -1010,6 +1038,114 @@ class QuantDB:
         logger.debug(f"标签 UPSERT: {count} 行")
         return count
 
+    def upsert_hot_candidate_scores(
+        self,
+        df: pd.DataFrame,
+        strategy_name: str = "hot_candidate_v1",
+    ) -> int:
+        """写入短线候选评分快照。"""
+        if df.empty:
+            return 0
+
+        required = {"ts_code", "trade_date", "total_score"}
+        missing = required - set(df.columns)
+        if missing:
+            logger.error(f"短线候选评分缺少必要字段: {missing}")
+            return 0
+
+        df = df.copy()
+        df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce")
+        df = df.dropna(subset=["ts_code", "trade_date"])
+        if df.empty:
+            return 0
+
+        df["strategy_name"] = df.get("strategy_name", strategy_name)
+        df["strategy_name"] = df["strategy_name"].fillna(strategy_name)
+        if "source" not in df.columns:
+            df["source"] = "hot_candidate_scoring"
+        df["source"] = df["source"].fillna("hot_candidate_scoring")
+        if "is_rejected" not in df.columns:
+            df["is_rejected"] = False
+        df["is_rejected"] = df["is_rejected"].fillna(False).astype(bool)
+
+        upsert_cols = [
+            "trade_date",
+            "ts_code",
+            "strategy_name",
+            "buyability_score",
+            "capital_persistence_score",
+            "seal_quality_score",
+            "support_quality_score",
+            "safety_filter_score",
+            "liquidity_structure_score",
+            "sector_resonance_score",
+            "leader_status_score",
+            "theme_validation_score",
+            "total_score",
+            "score_level",
+            "is_rejected",
+            "score_reason",
+            "source",
+        ]
+        for col in upsert_cols:
+            if col not in df.columns:
+                df[col] = None
+
+        numeric_cols = [
+            "buyability_score",
+            "capital_persistence_score",
+            "seal_quality_score",
+            "support_quality_score",
+            "safety_filter_score",
+            "liquidity_structure_score",
+            "sector_resonance_score",
+            "leader_status_score",
+            "theme_validation_score",
+            "total_score",
+        ]
+        for col in numeric_cols:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        self.conn.register("_tmp_hot_candidate_scores", df[upsert_cols])
+        count = self.conn.execute("""
+            INSERT INTO hot_candidate_scores (
+                trade_date, ts_code, strategy_name,
+                buyability_score, capital_persistence_score, seal_quality_score,
+                support_quality_score, safety_filter_score,
+                liquidity_structure_score, sector_resonance_score,
+                leader_status_score, theme_validation_score, total_score,
+                score_level, is_rejected, score_reason, source
+            )
+            SELECT
+                trade_date, ts_code, strategy_name,
+                buyability_score, capital_persistence_score, seal_quality_score,
+                support_quality_score, safety_filter_score,
+                liquidity_structure_score, sector_resonance_score,
+                leader_status_score, theme_validation_score, total_score,
+                score_level, is_rejected, score_reason, source
+            FROM _tmp_hot_candidate_scores
+            ON CONFLICT (trade_date, ts_code, strategy_name) DO UPDATE SET
+                buyability_score = EXCLUDED.buyability_score,
+                capital_persistence_score = EXCLUDED.capital_persistence_score,
+                seal_quality_score = EXCLUDED.seal_quality_score,
+                support_quality_score = EXCLUDED.support_quality_score,
+                safety_filter_score = EXCLUDED.safety_filter_score,
+                liquidity_structure_score = EXCLUDED.liquidity_structure_score,
+                sector_resonance_score = EXCLUDED.sector_resonance_score,
+                leader_status_score = EXCLUDED.leader_status_score,
+                theme_validation_score = EXCLUDED.theme_validation_score,
+                total_score = EXCLUDED.total_score,
+                score_level = EXCLUDED.score_level,
+                is_rejected = EXCLUDED.is_rejected,
+                score_reason = EXCLUDED.score_reason,
+                source = EXCLUDED.source,
+                updated_at = now()
+        """).fetchone()[0]
+        self.conn.unregister("_tmp_hot_candidate_scores")
+
+        logger.debug(f"短线候选评分 UPSERT: {count} 行")
+        return count
+
     def upsert_factor_ic(
         self,
         detail: pd.DataFrame,
@@ -1378,6 +1514,33 @@ class QuantDB:
             WHERE trade_date BETWEEN ?::DATE AND ?::DATE
             ORDER BY trade_date, ts_code
         """, [_date_param(start_date), _date_param(end_date)]).fetchdf()
+
+    def query_hot_candidate_scores(
+        self,
+        start_date: str,
+        end_date: str,
+        strategy_name: str = "hot_candidate_v1",
+        min_score: float = None,
+        include_rejected: bool = False,
+    ) -> pd.DataFrame:
+        """查询短线候选评分快照。"""
+        where = [
+            "trade_date BETWEEN ?::DATE AND ?::DATE",
+            "strategy_name = ?",
+        ]
+        params = [_date_param(start_date), _date_param(end_date), strategy_name]
+        if min_score is not None:
+            where.append("total_score >= ?")
+            params.append(float(min_score))
+        if not include_rejected:
+            where.append("COALESCE(is_rejected, FALSE) = FALSE")
+
+        return self.conn.execute(f"""
+            SELECT *
+            FROM hot_candidate_scores
+            WHERE {' AND '.join(where)}
+            ORDER BY trade_date ASC, total_score DESC, ts_code ASC
+        """, params).fetchdf()
 
     def query_factor_dataset(
         self,

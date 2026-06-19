@@ -119,6 +119,38 @@ class HotCandidateBacktestTest(unittest.TestCase):
 
         self.assertEqual(kline["ts_code"].tolist(), ["A", "C"])
 
+    def test_script_loads_scored_candidates_from_db(self):
+        from argparse import Namespace
+
+        from scripts.run_hot_candidate_backtest import load_scores_for_backtest
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db = QuantDB(os.path.join(temp_dir, "test.duckdb"))
+            db.init_schema()
+            try:
+                db.upsert_hot_candidate_scores(pd.DataFrame({
+                    "ts_code": ["A", "B", "C"],
+                    "trade_date": pd.to_datetime(["2024-01-02"] * 3),
+                    "total_score": [90, 70, 40],
+                    "score_level": ["S", "B", "D"],
+                    "is_rejected": [False, False, False],
+                }))
+                args = Namespace(
+                    scores_csv=None,
+                    from_db=True,
+                    strategy_name="hot_candidate_v1",
+                    start="2024-01-01",
+                    end="2024-01-05",
+                    min_score=60,
+                )
+
+                loaded = load_scores_for_backtest(db, args)
+            finally:
+                db.close()
+
+        self.assertEqual(loaded["ts_code"].tolist(), ["A", "B"])
+        self.assertEqual(loaded["total_score"].tolist(), [90, 70])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -219,7 +219,7 @@ tail -n 120 logs/pipeline.log
 
 ### 短线候选回测
 
-评分结果可以直接进入回测，入口为 `scripts/run_hot_candidate_backtest.py`。当前版本从 CSV 读取 `score_hot_candidates` 的输出，并从 DuckDB 的 `daily_kline` 读取对应股票 K 线。
+评分结果可以直接进入回测，入口为 `scripts/run_hot_candidate_backtest.py`。当前版本支持从 CSV 读取 `score_hot_candidates` 的输出，也支持从 DuckDB 的 `hot_candidate_scores` 表读取历史评分快照，并从 `daily_kline` 读取对应股票 K 线。
 
 CSV 至少需要包含：
 
@@ -233,6 +233,20 @@ CSV 至少需要包含：
 ```bash
 python scripts/run_hot_candidate_backtest.py \
   --scores-csv data/hot_candidates/scored.csv \
+  --start 2026-06-01 \
+  --end 2026-06-19 \
+  --min-score 60 \
+  --top-n 10 \
+  --max-positions 10 \
+  --output data/backtest/hot_candidate_20260619.json
+```
+
+从数据库读取评分结果：
+
+```bash
+python scripts/run_hot_candidate_backtest.py \
+  --from-db \
+  --strategy-name hot_candidate_v1 \
   --start 2026-06-01 \
   --end 2026-06-19 \
   --min-score 60 \
