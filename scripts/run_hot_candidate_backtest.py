@@ -26,6 +26,7 @@ from core.backtest.hot_candidate import (
     run_hot_candidate_backtest,
 )
 from core.data_storage import QuantDB
+from core.scoring.hot_candidate import DEFAULT_STRATEGY_NAME
 
 
 def _build_backtest_config(cfg: dict, args: argparse.Namespace) -> BacktestConfig:
@@ -66,7 +67,7 @@ def main() -> int:
     parser.add_argument("--start", required=True, help="Start date, e.g. 2026-06-01")
     parser.add_argument("--end", default=None, help="End date (default: today)")
     parser.add_argument("--config", default="config.yaml", help="Config YAML path")
-    parser.add_argument("--strategy-name", default="hot_candidate_v1", help="Score strategy name for DB mode")
+    parser.add_argument("--strategy-name", default=DEFAULT_STRATEGY_NAME, help="Score strategy name for DB mode")
     parser.add_argument("--min-score", type=float, default=60.0, help="Minimum total score")
     parser.add_argument("--score-column", default="total_score", help="Score column to rank by")
     parser.add_argument("--top-n", type=int, default=10, help="Daily selected candidate count")

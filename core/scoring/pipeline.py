@@ -11,13 +11,13 @@ from core.scoring.enrich import (
     enrich_fund_flow,
     enrich_sector_info,
 )
-from core.scoring.hot_candidate import score_hot_candidates
+from core.scoring.hot_candidate import DEFAULT_STRATEGY_NAME, score_hot_candidates
 
 
 def build_hot_candidate_scores(
     db: Any,
     target_date: str,
-    strategy_name: str = "hot_candidate_v1",
+    strategy_name: str = DEFAULT_STRATEGY_NAME,
     min_pct_chg: float = 9.0,
     lookback_days: int = 10,
     persist: bool = True,

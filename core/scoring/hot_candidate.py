@@ -1,4 +1,4 @@
-"""Conservative hot-candidate scoring rules for short-term A-share selection."""
+"""Stable hot-candidate scoring rules for short-term A-share selection."""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ from typing import Any
 
 import pandas as pd
 
+
+DEFAULT_STRATEGY_NAME = "hot_candidate_v2_stable"
 
 SCORE_COLUMNS = [
     "buyability_score",
@@ -57,144 +59,91 @@ def _score_buyability(row: pd.Series, reasons: list[str]) -> int:
     if _bool(row, "is_one_price_limit_up") or gap >= 9.5:
         return 0
     if 1 <= gap <= 5:
-        return 20
+        return 25
     if 0 <= gap < 1:
-        return 17
+        return 21
     if -2 <= gap < 0:
-        return 14
+        return 17
     if 5 < gap <= 7:
-        return 10
+        return 12
     return 0
 
 
-def _score_capital_persistence(row: pd.Series, reasons: list[str]) -> int:
-    ddx = _num(row, "ddx", reasons)
-    ddy = _num(row, "ddy", reasons)
-    direction = _num(row, "main_direction_5d", reasons)
-    if ddx is None or ddy is None or direction is None:
-        return 1
-    positives = sum([ddx > 0, ddy > 0, direction > 0])
-    strong = sum([ddx >= 0.5, ddy >= 0.5, direction >= 0.5])
-    if strong == 3:
-        return 18
-    if positives == 3:
-        return 15
-    if positives == 2:
-        return 12
-    if positives == 1:
-        return 8
-    return 1
-
-
-def _score_seal_quality(row: pd.Series, reasons: list[str]) -> int:
-    seal_ratio = _num(row, "seal_ratio", reasons)
-    float_ratio = _num(row, "seal_float_mv_ratio", reasons)
-    if seal_ratio is None or float_ratio is None:
-        return 2
-    if seal_ratio >= 5 and float_ratio >= 2:
-        return 15
-    if seal_ratio >= 3:
-        return 12
-    if seal_ratio >= 1.5:
-        return 8
-    if seal_ratio >= 0.8:
-        return 5
-    return 2
-
-
 def _score_support_quality(row: pd.Series, reasons: list[str]) -> int:
-    main_buy = _num(row, "main_buy_ratio", reasons)
     volume_ratio = _num(row, "volume_ratio", reasons)
     turnover = _num(row, "turnover_rate", reasons)
-    if main_buy is None or volume_ratio is None or turnover is None:
-        return 2
+    amount = _num(row, "amount", reasons)
+    if volume_ratio is None or turnover is None or amount is None:
+        return 0
     checks = [
-        main_buy >= 0.30,
         1.2 <= volume_ratio <= 3.5,
         5 <= turnover <= 25,
+        amount >= 3,
     ]
     count = sum(checks)
     if count == 3:
-        return 15
+        return 20
     if count == 2:
-        return 12
+        return 16
     if count == 1:
-        return 9
-    if main_buy > 0 or volume_ratio > 0 or turnover > 0:
+        return 10
+    if volume_ratio > 0 or turnover > 0 or amount > 0:
         return 6
-    return 2
+    return 0
 
 
 def _score_safety(row: pd.Series, reasons: list[str]) -> tuple[int, bool]:
     if _bool(row, "is_st") or _bool(row, "is_delisted"):
         reasons.append("safety_reject")
         return 0, True
+    if "safety_score" not in row or _missing(row["safety_score"]):
+        return 10, False
     safety = _num(row, "safety_score", reasons)
     if safety is None:
-        return 1, False
-    if safety >= 92:
         return 10, False
+    if safety >= 92:
+        return 15, False
     if safety >= 85:
-        return 8, False
+        return 12, False
     if safety >= 75:
-        return 6, False
+        return 9, False
     if safety >= 65:
-        return 4, False
-    return 1, False
+        return 6, False
+    return 2, False
 
 
 def _score_liquidity(row: pd.Series, reasons: list[str]) -> int:
     circ_mv = _num(row, "circ_mv", reasons)
     amount = _num(row, "amount", reasons)
     if circ_mv is None or amount is None:
-        return 2
+        return 0
     if 20 <= circ_mv <= 160 and amount >= 3:
-        return 10
+        return 20
     if 10 <= circ_mv <= 260:
-        return 8
+        return 16
     if 5 <= circ_mv <= 400:
-        return 5
-    return 2
-
-
-def _score_sector(row: pd.Series, reasons: list[str]) -> int:
-    limit_count = _num(row, "sector_limit_up_count", reasons)
-    pct_chg = _num(row, "sector_pct_chg", reasons)
-    direction = _num(row, "sector_main_direction", reasons)
-    score = 0
-    if limit_count is not None:
-        if limit_count >= 8:
-            score += 4
-        elif limit_count >= 5:
-            score += 3
-        elif limit_count >= 3:
-            score += 2
-        elif limit_count >= 1:
-            score += 1
-    if pct_chg is not None:
-        if pct_chg >= 3:
-            score += 3
-        elif pct_chg >= 1.5:
-            score += 2
-        elif pct_chg > 0:
-            score += 1
-    if direction is not None and direction > 0:
-        score += 1
-    return min(score, 8)
+        return 10
+    return 4
 
 
 def _score_leader(row: pd.Series, reasons: list[str]) -> int:
-    rank = _num(row, "sector_rank", reasons)
+    pct_chg = _num(row, "pct_chg", reasons)
     streak = _num(row, "limit_up_streak", reasons)
-    if rank is None or streak is None:
-        return 1
-    if rank == 1 and streak >= 2:
-        return 4
-    if rank <= 2 and streak >= 3:
-        return 3
+    if pct_chg is None:
+        return 0
+    if streak is None:
+        streak = 1
+    if pct_chg >= 9.8 and streak >= 2:
+        return 20
+    if pct_chg >= 9.8:
+        return 16
+    if pct_chg >= 9.0:
+        return 12
     if streak >= 2:
-        return 2
-    return 1
+        return 10
+    if pct_chg >= 7.0:
+        return 6
+    return 2
 
 
 def _level(total_score: int, is_rejected: bool) -> str:
@@ -216,12 +165,12 @@ def _score_row(row: pd.Series) -> dict[str, Any]:
     safety_score, is_rejected = _score_safety(row, reasons)
     scores = {
         "buyability_score": _score_buyability(row, reasons),
-        "capital_persistence_score": _score_capital_persistence(row, reasons),
-        "seal_quality_score": _score_seal_quality(row, reasons),
+        "capital_persistence_score": 0,
+        "seal_quality_score": 0,
         "support_quality_score": _score_support_quality(row, reasons),
         "safety_filter_score": safety_score,
         "liquidity_structure_score": _score_liquidity(row, reasons),
-        "sector_resonance_score": _score_sector(row, reasons),
+        "sector_resonance_score": 0,
         "leader_status_score": _score_leader(row, reasons),
     }
     total = int(sum(scores.values()))
@@ -238,7 +187,7 @@ def _score_row(row: pd.Series) -> dict[str, Any]:
 
 
 def score_hot_candidates(candidates: pd.DataFrame) -> pd.DataFrame:
-    """Score short-term candidates with conservative missing-field handling."""
+    """Score short-term candidates using stable locally available market fields."""
     base_columns = ["ts_code", "trade_date"]
     output_columns = (
         base_columns

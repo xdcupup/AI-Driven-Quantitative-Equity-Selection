@@ -6,18 +6,14 @@ from core.scoring.hot_candidate import score_hot_candidates
 
 
 class HotCandidateScoringTest(unittest.TestCase):
-    def test_scores_full_strength_candidate_to_100_without_theme_in_total(self):
+    def test_scores_stable_full_strength_candidate_to_100_without_optional_sources(self):
         candidates = pd.DataFrame({
             "ts_code": ["000001.SZ"],
             "trade_date": pd.to_datetime(["2026-06-19"]),
             "open_gap_pct": [3.0],
             "is_one_price_limit_up": [False],
-            "ddx": [0.8],
-            "ddy": [0.6],
-            "main_direction_5d": [1.0],
-            "seal_ratio": [5.2],
-            "seal_float_mv_ratio": [2.1],
-            "main_buy_ratio": [0.35],
+            "pct_chg": [10.0],
+            "limit_up_streak": [2],
             "volume_ratio": [2.0],
             "turnover_rate": [12.0],
             "is_st": [False],
@@ -25,11 +21,6 @@ class HotCandidateScoringTest(unittest.TestCase):
             "safety_score": [95.0],
             "circ_mv": [80.0],
             "amount": [4.0],
-            "sector_limit_up_count": [8],
-            "sector_pct_chg": [3.5],
-            "sector_main_direction": [1.0],
-            "sector_rank": [1],
-            "limit_up_streak": [2],
             "theme_score": [6.0],
             "theme_evidence": ["AI+算力"],
             "theme_suspicious": [False],
@@ -38,18 +29,21 @@ class HotCandidateScoringTest(unittest.TestCase):
         scored = score_hot_candidates(candidates)
         row = scored.iloc[0]
 
-        self.assertEqual(row["buyability_score"], 20)
-        self.assertEqual(row["capital_persistence_score"], 18)
-        self.assertEqual(row["seal_quality_score"], 15)
-        self.assertEqual(row["support_quality_score"], 15)
-        self.assertEqual(row["safety_filter_score"], 10)
-        self.assertEqual(row["liquidity_structure_score"], 10)
-        self.assertEqual(row["sector_resonance_score"], 8)
-        self.assertEqual(row["leader_status_score"], 4)
+        self.assertEqual(row["buyability_score"], 25)
+        self.assertEqual(row["capital_persistence_score"], 0)
+        self.assertEqual(row["seal_quality_score"], 0)
+        self.assertEqual(row["support_quality_score"], 20)
+        self.assertEqual(row["safety_filter_score"], 15)
+        self.assertEqual(row["liquidity_structure_score"], 20)
+        self.assertEqual(row["sector_resonance_score"], 0)
+        self.assertEqual(row["leader_status_score"], 20)
         self.assertEqual(row["theme_validation_score"], 6.0)
         self.assertEqual(row["total_score"], 100)
         self.assertEqual(row["score_level"], "S")
         self.assertFalse(bool(row["is_rejected"]))
+        self.assertNotIn("missing:ddx", row["score_reason"])
+        self.assertNotIn("missing:seal_ratio", row["score_reason"])
+        self.assertNotIn("missing:sector_rank", row["score_reason"])
 
     def test_uses_conservative_low_scores_for_missing_fields(self):
         candidates = pd.DataFrame({
@@ -60,15 +54,18 @@ class HotCandidateScoringTest(unittest.TestCase):
         row = score_hot_candidates(candidates).iloc[0]
 
         self.assertEqual(row["buyability_score"], 0)
-        self.assertEqual(row["capital_persistence_score"], 1)
-        self.assertEqual(row["seal_quality_score"], 2)
-        self.assertEqual(row["support_quality_score"], 2)
-        self.assertEqual(row["safety_filter_score"], 1)
-        self.assertEqual(row["liquidity_structure_score"], 2)
+        self.assertEqual(row["capital_persistence_score"], 0)
+        self.assertEqual(row["seal_quality_score"], 0)
+        self.assertEqual(row["support_quality_score"], 0)
+        self.assertEqual(row["safety_filter_score"], 10)
+        self.assertEqual(row["liquidity_structure_score"], 0)
         self.assertEqual(row["sector_resonance_score"], 0)
-        self.assertEqual(row["leader_status_score"], 1)
-        self.assertEqual(row["total_score"], 9)
+        self.assertEqual(row["leader_status_score"], 0)
+        self.assertEqual(row["total_score"], 10)
         self.assertIn("missing:open_gap_pct", row["score_reason"])
+        self.assertNotIn("missing:ddx", row["score_reason"])
+        self.assertNotIn("missing:seal_ratio", row["score_reason"])
+        self.assertNotIn("missing:sector_rank", row["score_reason"])
 
     def test_rejects_st_or_delisted_candidates(self):
         candidates = pd.DataFrame({
@@ -97,7 +94,7 @@ class HotCandidateScoringTest(unittest.TestCase):
 
         self.assertEqual(
             scored["buyability_score"].tolist(),
-            [20, 17, 14, 10, 0, 0],
+            [25, 21, 17, 12, 0, 0],
         )
 
     def test_enrich_adds_sector_counts_from_theme_stocks(self):

@@ -103,7 +103,7 @@ evaluation:
 scoring:
   hot_candidate:
     enabled: false           # 生成短线候选评分并写入 hot_candidate_scores
-    strategy_name: hot_candidate_v1
+    strategy_name: hot_candidate_v2_stable
     min_pct_chg: 9.0         # 基础候选：当日涨幅 >= 9%
     lookback_days: 10        # 计算开盘溢价、连板高度等需要的回看窗口
 

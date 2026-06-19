@@ -138,7 +138,7 @@ class HotCandidateBacktestTest(unittest.TestCase):
                 args = Namespace(
                     scores_csv=None,
                     from_db=True,
-                    strategy_name="hot_candidate_v1",
+                    strategy_name="hot_candidate_v2_stable",
                     start="2024-01-01",
                     end="2024-01-05",
                     min_score=60,

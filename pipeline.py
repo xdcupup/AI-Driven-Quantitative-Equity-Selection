@@ -987,12 +987,13 @@ class Pipeline:
             return
 
         from core.scoring.pipeline import build_hot_candidate_scores
+        from core.scoring.hot_candidate import DEFAULT_STRATEGY_NAME
 
         logger.info("生成短线候选评分...")
         build_hot_candidate_scores(
             self.db,
             target_date or datetime.now().strftime("%Y%m%d"),
-            strategy_name=cfg.get("strategy_name", "hot_candidate_v1"),
+            strategy_name=cfg.get("strategy_name", DEFAULT_STRATEGY_NAME),
             min_pct_chg=float(cfg.get("min_pct_chg", 9.0)),
             lookback_days=int(cfg.get("lookback_days", 10)),
             persist=True,

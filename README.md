@@ -202,20 +202,17 @@ tail -n 120 logs/pipeline.log
 
 ## 短线候选评分
 
-已接入第一版短线候选股评分器，代码在 `core/scoring/hot_candidate.py`。评分采用保守模式：关键字段缺失时给低分，ST/退市标记为拒绝候选。
+已接入稳定版短线候选股评分器，代码在 `core/scoring/hot_candidate.py`。当前主策略为 `hot_candidate_v2_stable`：只使用已能稳定采集的日 K、成交额、换手率、量比、流通市值和安全过滤字段；资金流、封单、板块题材等不稳定来源不计入总分。
 
 总分 100 分，不包含题材验证：
 
-- 可买性/溢价风险：20
-- 资金持续性：18
-- 封板质量：15
-- 承接质量：15
-- 安全过滤：10
-- 流动性/市值结构：10
-- 板块共振：8
-- 龙头地位：4
+- 可买性/溢价风险：25
+- 涨停强度/连板惯性：20
+- 量价承接质量：20
+- 安全过滤：15
+- 流动性/市值结构：20
 
-题材验证字段随候选结果返回，暂不计入 `total_score` 排序。
+为兼容当前 `hot_candidate_scores` 表结构，部分旧字段仍会保留：`capital_persistence_score`、`seal_quality_score`、`sector_resonance_score` 固定为 0；`leader_status_score` 暂时承载“涨停强度/连板惯性”的 20 分。题材验证字段随候选结果返回，暂不计入 `total_score` 排序。
 
 ### 短线候选每日评分流水线
 
@@ -225,6 +222,9 @@ tail -n 120 logs/pipeline.log
 
 - `daily_kline`：开盘溢价、量比、连板高度。
 - `daily_basic`：换手率、流通市值。
+
+以下数据源如果存在，会作为候选附加信息保留，但当前稳定版评分不依赖它们：
+
 - `stock_fund_flow_daily`：DDX、DDY、主力净流入比例。
 - `hot_theme_daily` / `hot_theme_stocks`：板块涨幅和板块内热度。
 
@@ -234,7 +234,7 @@ tail -n 120 logs/pipeline.log
 scoring:
   hot_candidate:
     enabled: true
-    strategy_name: hot_candidate_v1
+    strategy_name: hot_candidate_v2_stable
     min_pct_chg: 9.0
     lookback_days: 10
 ```
@@ -270,7 +270,7 @@ python scripts/run_hot_candidate_backtest.py \
 ```bash
 python scripts/run_hot_candidate_backtest.py \
   --from-db \
-  --strategy-name hot_candidate_v1 \
+  --strategy-name hot_candidate_v2_stable \
   --start 2026-06-01 \
   --end 2026-06-19 \
   --min-score 60 \
@@ -293,6 +293,6 @@ python scripts/run_hot_candidate_backtest.py \
 
 ## 下一步
 
-- 补齐短线评分器需要的数据源：竞价开盘、DDX/DDY、封单、板块涨停数、连板高度和题材证据链。
-- 持久化短线候选评分结果，形成“候选生成 -> 评分 -> 回测 -> 复盘”的闭环。
+- 用 `hot_candidate_v2_stable` 跑足够多的历史评分和回测样本，验证稳定字段的有效性。
+- 后续如果资金流、封单、板块题材数据源稳定，再作为增强维度重新评估是否计入总分。
 - 为东财独有数据补齐龙虎榜、解禁、融资融券、大宗交易、股东户数、分红、研报和新闻模块。

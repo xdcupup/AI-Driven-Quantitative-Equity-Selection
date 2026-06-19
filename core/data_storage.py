@@ -31,6 +31,8 @@ import pandas as pd
 import duckdb
 from loguru import logger
 
+from core.scoring.hot_candidate import DEFAULT_STRATEGY_NAME
+
 
 def _date_param(value: str | date | datetime | pd.Timestamp | None):
     if value is None:
@@ -1041,7 +1043,7 @@ class QuantDB:
     def upsert_hot_candidate_scores(
         self,
         df: pd.DataFrame,
-        strategy_name: str = "hot_candidate_v1",
+        strategy_name: str = DEFAULT_STRATEGY_NAME,
     ) -> int:
         """写入短线候选评分快照。"""
         if df.empty:
@@ -1519,7 +1521,7 @@ class QuantDB:
         self,
         start_date: str,
         end_date: str,
-        strategy_name: str = "hot_candidate_v1",
+        strategy_name: str = DEFAULT_STRATEGY_NAME,
         min_score: float = None,
         include_rejected: bool = False,
     ) -> pd.DataFrame:

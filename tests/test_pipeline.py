@@ -252,7 +252,7 @@ class FakeDB:
         self.daily_basic_batches.append(df.copy())
         return len(df)
 
-    def upsert_hot_candidate_scores(self, df, strategy_name="hot_candidate_v1"):
+    def upsert_hot_candidate_scores(self, df, strategy_name="hot_candidate_v2_stable"):
         self.hot_candidate_batches.append((strategy_name, df.copy()))
         return len(df)
 
@@ -519,7 +519,7 @@ class PipelineResearchDataTest(unittest.TestCase):
             "scoring": {
                 "hot_candidate": {
                     "enabled": True,
-                    "strategy_name": "hot_candidate_v1",
+                    "strategy_name": "hot_candidate_v2_stable",
                     "min_pct_chg": 9.0,
                 }
             }
@@ -529,7 +529,7 @@ class PipelineResearchDataTest(unittest.TestCase):
 
         self.assertEqual(len(pipeline.db.hot_candidate_batches), 1)
         strategy_name, saved = pipeline.db.hot_candidate_batches[0]
-        self.assertEqual(strategy_name, "hot_candidate_v1")
+        self.assertEqual(strategy_name, "hot_candidate_v2_stable")
         self.assertEqual(saved.iloc[0]["ts_code"], "000001.SZ")
         self.assertEqual(saved.iloc[0]["source"], "hot_candidate_pipeline")
 
