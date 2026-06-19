@@ -307,6 +307,44 @@ CREATE INDEX IF NOT EXISTS idx_concept_code
 ON stock_concept_blocks (concept_code);
 
 -- ====================================================================
+-- 龙虎榜明细
+-- ====================================================================
+CREATE TABLE IF NOT EXISTS dragon_tiger_daily (
+    ts_code       VARCHAR NOT NULL,
+    trade_date    DATE NOT NULL,
+    buy_amount    DOUBLE,
+    sell_amount   DOUBLE,
+    net_amount    DOUBLE,
+    reason        VARCHAR,
+    source        VARCHAR,
+    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (ts_code, trade_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_dt_date ON dragon_tiger_daily (trade_date);
+
+-- ====================================================================
+-- 个股资金流
+-- ====================================================================
+CREATE TABLE IF NOT EXISTS stock_fund_flow_daily (
+    ts_code       VARCHAR NOT NULL,
+    trade_date    DATE NOT NULL,
+    main_net_amt  DOUBLE,
+    main_net_ratio DOUBLE,
+    huge_net_amt  DOUBLE,
+    big_net_amt   DOUBLE,
+    mid_net_amt   DOUBLE,
+    small_net_amt DOUBLE,
+    ddx           DOUBLE,
+    ddy           DOUBLE,
+    source        VARCHAR,
+    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (ts_code, trade_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ff_date ON stock_fund_flow_daily (trade_date);
+
+-- ====================================================================
 -- 同花顺每日热点主题
 -- ====================================================================
 CREATE TABLE IF NOT EXISTS hot_theme_daily (
@@ -1156,6 +1194,26 @@ class QuantDB:
             SELECT * FROM _tmp_theme_stocks
         """)
         self.conn.unregister("_tmp_theme_stocks")
+
+    def upsert_dragon_tiger(self, df: pd.DataFrame):
+        """Upsert dragon tiger daily data."""
+        if df.empty:
+            return
+        self.conn.register("_tmp_dt", df)
+        self.conn.execute(
+            "INSERT OR REPLACE INTO dragon_tiger_daily SELECT * FROM _tmp_dt"
+        )
+        self.conn.unregister("_tmp_dt")
+
+    def upsert_fund_flow(self, df: pd.DataFrame):
+        """Upsert stock fund flow daily data."""
+        if df.empty:
+            return
+        self.conn.register("_tmp_ff", df)
+        self.conn.execute(
+            "INSERT OR REPLACE INTO stock_fund_flow_daily SELECT * FROM _tmp_ff"
+        )
+        self.conn.unregister("_tmp_ff")
 
     def upsert_trade_calendar(self, df: pd.DataFrame) -> int:
         """写入交易日历"""

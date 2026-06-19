@@ -77,6 +77,12 @@ fetch:
   hot_themes:
     enabled: false
     top_themes: 10
+  dragon_tiger:
+    enabled: false
+    max_stocks: 200
+  fund_flow:
+    enabled: false
+    max_stocks: 200
 
 evaluation:
   factor_ic:

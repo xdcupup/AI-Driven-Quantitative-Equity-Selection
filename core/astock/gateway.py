@@ -224,6 +224,14 @@ class AStockDataGateway:
         from core.astock.ths.hot_theme import fetch_theme_stocks
         return fetch_theme_stocks(theme_code, trade_date)
 
+    def fetch_dragon_tiger(self, ts_code: str, trade_date: str) -> pd.DataFrame:
+        from core.astock.eastmoney.dragon_tiger import fetch_dragon_tiger
+        return fetch_dragon_tiger(self.eastmoney, ts_code, trade_date)
+
+    def fetch_stock_fund_flow(self, ts_code: str, trade_date: str) -> pd.DataFrame:
+        from core.astock.eastmoney.fund_flow import fetch_stock_fund_flow
+        return fetch_stock_fund_flow(self.eastmoney, ts_code, trade_date)
+
     def _normalize_daily_kline(self, df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
             return _empty_frame(KLINE_COLUMNS)

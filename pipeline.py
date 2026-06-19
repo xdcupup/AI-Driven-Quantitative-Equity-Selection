@@ -240,6 +240,8 @@ class Pipeline:
             self._step_factor_ic(target_date)
             self._step_backtest(target_date)
             self._step_stock_concepts(stock_codes, target_date)
+            self._step_dragon_tiger(stock_codes, target_date)
+            self._step_fund_flow(stock_codes, target_date)
             self._step_hot_themes(target_date)
             quality_report = self._step_quality_report(target_date)
             self._step_source_audit(stock_codes, target_date)
@@ -949,6 +951,34 @@ class Pipeline:
             stocks = self.fetcher.fetch_theme_stocks(code, target_date)
             if not stocks.empty:
                 self.db.upsert_hot_theme_stocks(stocks)
+
+    def _step_dragon_tiger(self, stock_codes: list, target_date: str):
+        cfg = self.config.get("fetch", {}).get("dragon_tiger", {})
+        if not cfg.get("enabled", False):
+            return
+        logger.info("采集龙虎榜数据...")
+        sample = stock_codes[:int(cfg.get("max_stocks", 200))]
+        all_rows = []
+        for code in sample:
+            df = self.fetcher.fetch_dragon_tiger(code, target_date)
+            if not df.empty:
+                all_rows.append(df)
+        if all_rows:
+            self.db.upsert_dragon_tiger(pd.concat(all_rows, ignore_index=True))
+
+    def _step_fund_flow(self, stock_codes: list, target_date: str):
+        cfg = self.config.get("fetch", {}).get("fund_flow", {})
+        if not cfg.get("enabled", False):
+            return
+        logger.info("采集资金流数据...")
+        sample = stock_codes[:int(cfg.get("max_stocks", 200))]
+        all_rows = []
+        for code in sample:
+            df = self.fetcher.fetch_stock_fund_flow(code, target_date)
+            if not df.empty:
+                all_rows.append(df)
+        if all_rows:
+            self.db.upsert_fund_flow(pd.concat(all_rows, ignore_index=True))
 
     def _step_source_audit(self, stock_codes: list, target_date: str):
         """对腾讯和配置的第二数据源做轻量抽样对账。"""
