@@ -115,6 +115,21 @@ class HotCandidateScoringTest(unittest.TestCase):
         result = enrich_sector_info(candidates, pd.DataFrame(), pd.DataFrame(), theme_stocks)
         self.assertEqual(result.iloc[0]["sector_limit_up_count"], 3)
 
+    def test_enrich_fund_flow_adds_ddx_ddy(self):
+        from core.scoring.enrich import enrich_fund_flow
+        candidates = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "trade_date": pd.to_datetime(["2026-06-19"]),
+        })
+        ff = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "trade_date": pd.to_datetime(["2026-06-19"]),
+            "ddx": [0.75],
+            "ddy": [0.62],
+        })
+        result = enrich_fund_flow(candidates, ff)
+        self.assertAlmostEqual(result.iloc[0]["ddx"], 0.75)
+
 
 if __name__ == "__main__":
     unittest.main()

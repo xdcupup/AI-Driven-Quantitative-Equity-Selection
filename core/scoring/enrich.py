@@ -63,3 +63,52 @@ def enrich_sector_info(
             )
 
     return df
+
+
+def enrich_fund_flow(
+    candidates: pd.DataFrame,
+    fund_flow: pd.DataFrame,
+) -> pd.DataFrame:
+    """Add DDX/DDY/main_net fields from fund flow data."""
+    if candidates.empty or fund_flow.empty:
+        return candidates
+
+    df = candidates.copy()
+    flow_cols = ["ts_code", "trade_date"]
+    extra_cols = [c for c in ["ddx", "ddy", "main_net_amt", "main_net_ratio"]
+                  if c in fund_flow.columns]
+    ff = fund_flow[flow_cols + extra_cols].copy()
+    merged = df.merge(ff, on=["ts_code", "trade_date"], how="left")
+    for col in ["ddx", "ddy", "main_net_ratio"]:
+        if col in merged.columns:
+            df[col] = merged[col].fillna(0)
+    return df
+
+
+def enrich_daily_kline_features(
+    candidates: pd.DataFrame,
+    kline: pd.DataFrame,
+) -> pd.DataFrame:
+    """Add open_gap_pct, volume_ratio from daily_kline."""
+    if candidates.empty or kline.empty:
+        return candidates
+
+    df = candidates.copy()
+    kl = kline[["ts_code", "trade_date", "open", "close", "vol", "pct_chg"]].copy()
+    kl = kl.sort_values(["ts_code", "trade_date"])
+    kl["prev_close"] = kl.groupby("ts_code")["close"].shift(1)
+    kl["open_gap_pct"] = (kl["open"] / kl["prev_close"] - 1) * 100
+    # 5-day average volume for volume_ratio
+    kl["volume_ratio"] = kl["vol"] / kl.groupby("ts_code")["vol"].transform(
+        lambda x: x.rolling(5, min_periods=1).mean()
+    )
+
+    merged = df.merge(
+        kl[["ts_code", "trade_date", "open_gap_pct", "volume_ratio", "pct_chg"]],
+        on=["ts_code", "trade_date"],
+        how="left",
+    )
+    for col in ["open_gap_pct", "volume_ratio"]:
+        if col in merged.columns:
+            df[col] = merged[col].fillna(0)
+    return df
