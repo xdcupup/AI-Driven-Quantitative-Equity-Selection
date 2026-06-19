@@ -355,6 +355,31 @@ class MootdxMarketClientTest(unittest.TestCase):
         self.assertEqual(result.iloc[1]["source"], "mootdx")
         self.assertStableColumns(result)
 
+    def test_daily_kline_accepts_mootdx_datetime_with_intraday_time(self):
+        class FakeQuotes:
+            def bars(self, symbol, market, category, offset):
+                return pd.DataFrame({
+                    "datetime": ["2026-06-17 15:00", "2026-06-18 15:00"],
+                    "open": [10.97, 10.74],
+                    "close": [10.78, 10.52],
+                    "high": [10.99, 10.77],
+                    "low": [10.75, 10.52],
+                    "vol": [965828.0, 1426893.0],
+                    "amount": [1046565000.0, 1511010000.0],
+                })
+
+        client = MootdxMarketClient(quotes=FakeQuotes())
+
+        result = client.fetch_daily_kline("000001.SZ", "20260617", "20260618")
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result["trade_date"].tolist(), [
+            pd.Timestamp("2026-06-17"),
+            pd.Timestamp("2026-06-18"),
+        ])
+        self.assertEqual(result.iloc[1]["close"], 10.52)
+        self.assertStableColumns(result)
+
     def test_daily_kline_skips_bse_in_stage_one(self):
         client = MootdxMarketClient(quotes=Mock())
 

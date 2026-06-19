@@ -55,7 +55,10 @@ class MootdxMarketClient:
             return _empty_kline_frame()
 
         normalized_dates = (
-            result["trade_date"].astype(str).str.replace("-", "", regex=False)
+            result["trade_date"]
+            .astype(str)
+            .str.slice(0, 10)
+            .str.replace("-", "", regex=False)
         )
         result["trade_date"] = pd.to_datetime(
             normalized_dates, format="%Y%m%d", errors="coerce"
