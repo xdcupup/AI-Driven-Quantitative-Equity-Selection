@@ -189,6 +189,17 @@ tail -n 120 logs/pipeline.log
 - `factor_labels`：监督学习标签表，字段包括 `forward_return_5d/forward_return_10d/forward_return_20d/max_drawdown_20d`。这些字段使用信号日之后的价格生成，只能用于训练、评估和回测归因，不能作为信号日可见因子。
 - `factor_ic_detail` / `factor_ic_summary`：因子 IC/IR 评估结果，默认用 Spearman 截面相关衡量技术因子对 `forward_return_20d` 的预测能力。
 
+## 策略规则
+
+已复用一版“抱团股”规则，代码在 `core/strategies/crowded.py`。
+
+核心口径：
+
+- 月初选股：从可交易股票池中，取过去 22 个交易日平均成交额最高的 10 只股票。
+- 过滤条件：剔除 ST、非上市、新股上市不足 120 天、停牌和 OHLC 异常样本。
+- 每日择时：计算目标股票过去 25 个交易日的等权组合动量。
+- 状态机：目标池为空则清仓；动量大于 0 且空仓则等权开仓；动量大于 0 且已持仓则继续持有；动量小于等于 0 则清仓或继续空仓。
+
 ## 开发说明
 
 新代码优先放在 `core/astock` 下。旧 `core/data_fetcher.py` 只作为 legacy 兼容入口存在，不再继续扩展 AKShare 或 Tushare 路径。
