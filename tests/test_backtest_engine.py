@@ -105,6 +105,44 @@ class BacktestEngineTest(unittest.TestCase):
         self.assertGreater(pos.shares, 0)
         self.assertLess(p.cash, 1_000_000.0)
 
+    def test_compute_metrics_returns_zero_for_empty(self):
+        from core.backtest.analytics import compute_metrics
+        from core.backtest.config import BacktestConfig
+        cfg = BacktestConfig()
+        result = compute_metrics([], [], cfg)
+        self.assertEqual(result["sharpe_ratio"], 0.0)
+        self.assertEqual(result["total_return"], 0.0)
+
+    def test_compute_metrics_calculates_sharpe_from_returns(self):
+        from core.backtest.analytics import compute_metrics
+        from core.backtest.config import BacktestConfig
+        cfg = BacktestConfig()
+        returns = [
+            {"signal_date": pd.Timestamp("2024-01-02"), "exec_date": pd.Timestamp("2024-01-03"), "daily_return": 0.01, "nav": 1_010_000.0},
+            {"signal_date": pd.Timestamp("2024-01-03"), "exec_date": pd.Timestamp("2024-01-04"), "daily_return": -0.005, "nav": 1_004_950.0},
+        ]
+        result = compute_metrics(returns, [], cfg)
+        self.assertAlmostEqual(result["total_return"], 0.00495, places=4)
+        self.assertTrue(result["sharpe_ratio"] != 0.0)
+
+    def test_layer_analysis_computes_group_returns(self):
+        from core.backtest.analytics import compute_layer_returns
+        factors = pd.DataFrame({
+            "ts_code": ["A", "B", "C", "D", "E"] * 3,
+            "trade_date": pd.to_datetime(["2024-01-02"] * 5 + ["2024-01-03"] * 5 + ["2024-01-04"] * 5),
+            "return_20d": [0.01, 0.02, 0.03, 0.04, 0.05] * 3,
+        })
+        labels = pd.DataFrame({
+            "ts_code": ["A", "B", "C", "D", "E"] * 3,
+            "trade_date": pd.to_datetime(["2024-01-02"] * 5 + ["2024-01-03"] * 5 + ["2024-01-04"] * 5),
+            "forward_return_20d": [0.01, 0.03, 0.05, 0.08, 0.10] * 3,
+        })
+        result = compute_layer_returns(factors, labels, "return_20d", "forward_return_20d", n_groups=3)
+        self.assertIn("groups", result)
+        self.assertIn("spread", result)
+        # Top group should have higher factor value and return
+        self.assertGreater(result["spread"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

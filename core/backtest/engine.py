@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
 from core.backtest.config import BacktestConfig
 from core.backtest.portfolio import Portfolio
+from core.backtest.analytics import compute_metrics
 
 
 class BacktestEngine:
@@ -68,30 +68,10 @@ class BacktestEngine:
             })
 
         self.daily_returns = daily_returns
-
-        # Compute basic metrics
-        rets = np.array([d["daily_return"] for d in daily_returns], dtype=float)
-        navs = np.array([d["nav"] for d in daily_returns], dtype=float)
-        total_return = float((navs[-1] / navs[0] - 1)) if len(navs) > 1 and navs[0] > 0 else 0.0
-        mean_ret = float(np.mean(rets)) if len(rets) > 0 else 0.0
-        std_ret = float(np.std(rets, ddof=1)) if len(rets) > 1 else 0.0
-        sharpe = float(mean_ret / std_ret * np.sqrt(252)) if std_ret > 0 else 0.0
-        cummax = np.maximum.accumulate(navs) if len(navs) > 0 else np.array([1.0])
-        drawdowns = (navs - cummax) / cummax
-        max_dd = float(np.min(drawdowns)) if len(drawdowns) > 0 else 0.0
-        wins = int(np.sum(rets > 0))
-        win_rate = float(wins / len(rets)) if len(rets) > 0 else 0.0
-
-        return {
-            "total_return": total_return,
-            "annual_return": 0.0,
-            "sharpe_ratio": sharpe,
-            "max_drawdown": max_dd,
-            "win_rate": win_rate,
-            "daily_returns": daily_returns,
-            "trades": self._trades,
-            "attribution": {},
-        }
+        return compute_metrics(
+            daily_returns, self._trades, self.config,
+            start_date=start, end_date=end,
+        )
 
     def _rebalance(self, factors: pd.DataFrame, signal_date: pd.Timestamp):
         """Select top-N stocks and rebalance portfolio."""
