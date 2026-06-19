@@ -148,3 +148,35 @@ logging:
   max_size_mb: 50
   backup_count: 7
   format: "{time:YYYY-MM-DD HH:mm:ss} | {level:<7} | {name}:{function}:{line} | {message}"
+
+backtest:
+  enabled: false
+  start_date: "2024-01-01"
+  lookback_days: 365
+  top_n: 50
+  bottom_n: 50
+  initial_capital: 1000000.0
+  max_positions: 20
+  position_sizing: equal_weight
+  rebalance_frequency: daily
+  execution_model: next_open
+  slippage_bps: 5.0
+  commission_bps: 2.5
+  stamp_duty_bps: 10.0
+  industry_neutral: false
+  market_cap_neutral: false
+  scan_enabled: false
+  decay_enabled: false
+  decay_half_life: 5
+  attribution_enabled: false
+  output_dir: data/backtest
+  factor_columns:
+    - return_20d
+    - return_60d
+    - volatility_20d
+    - ma20_bias
+    - ma60_bias
+    - max_drawdown_60d
+    - volume_ratio_20d
+    - liquidity_20d
+  label_column: forward_return_20d

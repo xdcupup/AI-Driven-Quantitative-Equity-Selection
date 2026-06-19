@@ -238,6 +238,7 @@ class Pipeline:
             self._step_technical_factors(stock_codes, target_date)
             self._step_factor_labels(stock_codes, target_date)
             self._step_factor_ic(target_date)
+            self._step_backtest(target_date)
             self._step_stock_concepts(stock_codes, target_date)
             self._step_hot_themes(target_date)
             quality_report = self._step_quality_report(target_date)
@@ -866,6 +867,56 @@ class Pipeline:
         )
         if not detail.empty or not summary.empty:
             self.db.upsert_factor_ic(detail, summary)
+
+    def _step_backtest(self, target_date: str):
+        """Run factor backtest if configured."""
+        cfg = self.config.get("backtest", {})
+        if not cfg.get("enabled", False):
+            return
+
+        from core.backtest.config import BacktestConfig
+        from core.backtest.engine import BacktestEngine
+
+        logger.info("执行因子回测...")
+        bt_config = BacktestConfig.from_dict(cfg)
+
+        end = pd.Timestamp(
+            (target_date or datetime.now().strftime("%Y%m%d")).replace("-", "")
+        )
+        start = end - pd.Timedelta(days=cfg.get("lookback_days", 365))
+
+        factors = self.db.query_factor_dataset(
+            start.strftime("%Y%m%d"),
+            end.strftime("%Y%m%d"),
+            factor_columns=bt_config.factor_columns,
+            label_column=bt_config.label_column,
+        )
+        kline = self.db.conn.execute(
+            "SELECT * FROM daily_kline WHERE trade_date BETWEEN ?::DATE AND ?::DATE ORDER BY trade_date, ts_code",
+            [start.strftime("%Y%m%d"), end.strftime("%Y%m%d")],
+        ).fetchdf()
+
+        engine = BacktestEngine(bt_config)
+        report = engine.run(factors, pd.DataFrame(), kline)
+
+        # Save report
+        import json
+        os.makedirs(bt_config.output_dir, exist_ok=True)
+        report_path = os.path.join(
+            bt_config.output_dir,
+            f"backtest_{end.strftime('%Y%m%d')}.json",
+        )
+        with open(report_path, "w") as f:
+            json.dump({
+                k: v for k, v in report.items()
+                if k not in ("daily_returns", "trades", "nav_series")
+            }, f, indent=2, default=str)
+
+        logger.info(
+            f"回测完成: 总收益={report['total_return']:.2%}, "
+            f"Sharpe={report['sharpe_ratio']:.2f}, "
+            f"最大回撤={report['max_drawdown']:.2%}"
+        )
 
     def _step_stock_concepts(self, stock_codes: list, target_date: str):
         """Collect concept board affiliations from East Money."""
