@@ -2,77 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
 from core.backtest.config import BacktestConfig
-
-
-@dataclass
-class _Position:
-    ts_code: str
-    shares: int = 0
-    avg_cost: float = 0.0
-    weight: float = 0.0
-
-
-class _SimplePortfolio:
-    """Minimal portfolio for engine testing. Will be replaced by core/backtest/portfolio.py."""
-
-    def __init__(self, initial_capital: float = 1_000_000.0):
-        self.initial_capital = float(initial_capital)
-        self.cash = self.initial_capital
-        self.positions: dict[str, _Position] = {}
-        self._last_prices: dict[str, float] = {}
-
-    @property
-    def nav(self) -> float:
-        pos_val = sum(
-            p.shares * self._last_prices.get(p.ts_code, p.avg_cost)
-            for p in self.positions.values()
-        )
-        return self.cash + pos_val
-
-    def rebalance(self, target_stocks: list[str], max_positions: int):
-        targets = target_stocks[:max_positions]
-        current = set(self.positions.keys())
-        target_set = set(targets)
-        # Sell non-targets
-        for code in list(self.positions.keys()):
-            if code not in target_set:
-                pos = self.positions.pop(code)
-                price = self._last_prices.get(code, pos.avg_cost)
-                self.cash += pos.shares * price
-        # Add new positions with equal weight
-        if targets:
-            weight = 1.0 / len(targets)
-            for code in targets:
-                if code not in self.positions:
-                    self.positions[code] = _Position(ts_code=code, weight=weight)
-
-    def mark_to_market(self, kline: pd.DataFrame, exec_date: pd.Timestamp) -> float:
-        if kline.empty or not self.positions:
-            return 0.0
-        exec_kline = kline[kline["trade_date"] == exec_date]
-        if exec_kline.empty:
-            return 0.0
-        price_map = dict(zip(exec_kline["ts_code"], exec_kline["open"]))
-        prev_nav = self.nav
-        for code, pos in self.positions.items():
-            price = price_map.get(code)
-            if price is None or price <= 0:
-                continue
-            self._last_prices[code] = float(price)
-            if pos.avg_cost == 0.0:
-                alloc = self.initial_capital * pos.weight
-                pos.shares = int(alloc / price)
-                pos.avg_cost = price
-                self.cash -= pos.shares * price
-        new_nav = self.nav
-        return float((new_nav - prev_nav) / prev_nav) if prev_nav > 0 else 0.0
+from core.backtest.portfolio import Portfolio
 
 
 class BacktestEngine:
@@ -80,7 +16,7 @@ class BacktestEngine:
 
     def __init__(self, config: BacktestConfig):
         self.config = config
-        self.portfolio = _SimplePortfolio(config.initial_capital)
+        self.portfolio = Portfolio(config.initial_capital)
         self.daily_returns = []
 
     def run(
@@ -117,9 +53,10 @@ class BacktestEngine:
             }
 
         daily_returns = []
-        trades = []
+        self._trades = []
 
         for i, signal_date in enumerate(trade_dates[:-1]):
+            self._current_signal_date = signal_date
             next_date = trade_dates[i + 1]
             self._rebalance(factors, signal_date)
             day_return = self._mark_to_market(kline, next_date)
@@ -152,7 +89,7 @@ class BacktestEngine:
             "max_drawdown": max_dd,
             "win_rate": win_rate,
             "daily_returns": daily_returns,
-            "trades": trades,
+            "trades": self._trades,
             "attribution": {},
         }
 
@@ -163,7 +100,13 @@ class BacktestEngine:
             return
         scored = self._score_stocks(day_factors)
         top_stocks = scored.head(self.config.top_n)["ts_code"].tolist()
-        self.portfolio.rebalance(top_stocks, self.config.max_positions)
+        self.portfolio.rebalance(
+            target_stocks=top_stocks,
+            signal_date=signal_date,
+            max_positions=self.config.max_positions,
+            position_sizing=self.config.position_sizing,
+            turnover_limit=self.config.turnover_limit,
+        )
 
     def _score_stocks(self, day_factors: pd.DataFrame) -> pd.DataFrame:
         """Compute composite factor score for one day's cross-section."""
@@ -190,4 +133,9 @@ class BacktestEngine:
         return df.sort_values("_score", ascending=False)
 
     def _mark_to_market(self, kline: pd.DataFrame, exec_date: pd.Timestamp) -> float:
-        return self.portfolio.mark_to_market(kline, exec_date)
+        return self.portfolio.mark_to_market(
+            kline, self._current_signal_date, exec_date, self._trades,
+            slippage_bps=self.config.slippage_bps,
+            commission_bps=self.config.commission_bps,
+            stamp_duty_bps=self.config.stamp_duty_bps,
+        )

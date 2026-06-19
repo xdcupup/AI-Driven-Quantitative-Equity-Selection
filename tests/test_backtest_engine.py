@@ -63,6 +63,48 @@ class BacktestEngineTest(unittest.TestCase):
         # Should have 2 positions max
         self.assertLessEqual(len(engine.portfolio.positions), 2)
 
+    def test_portfolio_initializes_with_cash(self):
+        from core.backtest.portfolio import Portfolio
+        p = Portfolio(1_000_000.0)
+        self.assertEqual(p.nav, 1_000_000.0)
+        self.assertEqual(p.cash, 1_000_000.0)
+        self.assertEqual(len(p.positions), 0)
+
+    def test_portfolio_rebalance_adds_equal_weight_positions(self):
+        from core.backtest.portfolio import Portfolio
+        p = Portfolio(1_000_000.0)
+        p.rebalance(
+            target_stocks=["000001.SZ", "000002.SZ"],
+            signal_date=pd.Timestamp("2024-01-02"),
+            max_positions=10,
+            position_sizing="equal_weight",
+            turnover_limit=1.0,
+        )
+        self.assertEqual(len(p.positions), 2)
+        self.assertAlmostEqual(sum(pos.weight for pos in p.positions.values()), 1.0)
+
+    def test_portfolio_mark_to_market_updates_nav(self):
+        from core.backtest.portfolio import Portfolio
+        p = Portfolio(1_000_000.0)
+        p.rebalance(
+            target_stocks=["000001.SZ"],
+            signal_date=pd.Timestamp("2024-01-02"),
+            max_positions=10,
+            position_sizing="equal_weight",
+            turnover_limit=1.0,
+        )
+        kline = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "trade_date": pd.to_datetime(["2024-01-03"]),
+            "open": [10.0],
+            "close": [10.5],
+        })
+        p.mark_to_market(kline, pd.Timestamp("2024-01-02"), pd.Timestamp("2024-01-03"), [])
+        # Should have bought shares at ~10.0 with 1M allocated
+        pos = p.positions["000001.SZ"]
+        self.assertGreater(pos.shares, 0)
+        self.assertLess(p.cash, 1_000_000.0)
+
 
 if __name__ == "__main__":
     unittest.main()
