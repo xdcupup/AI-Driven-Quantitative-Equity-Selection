@@ -5,6 +5,11 @@ from core.astock.eastmoney.client import EastMoneyDataClient
 
 
 class EastMoneyDataClientTest(unittest.TestCase):
+    def test_default_session_bypasses_environment_proxy(self):
+        client = EastMoneyDataClient(min_interval_sec=0.0)
+
+        self.assertFalse(client.session.trust_env)
+
     def test_em_get_waits_and_reuses_session(self):
         session = Mock()
         response = Mock()

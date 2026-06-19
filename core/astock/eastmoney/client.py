@@ -30,6 +30,8 @@ class EastMoneyDataClient:
         jitter_range: tuple[float, float] = (0.1, 0.5),
     ) -> None:
         self.session = session or requests.Session()
+        if session is None:
+            self.session.trust_env = False
         self.session.headers.update(DEFAULT_HEADERS)
         self.min_interval_sec = float(min_interval_sec)
         self.jitter_range = jitter_range
