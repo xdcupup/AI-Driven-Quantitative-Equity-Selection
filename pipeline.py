@@ -236,6 +236,8 @@ class Pipeline:
             self._step_financial_statements(stock_codes, target_date, full_refresh)
             self._step_financial_factors(target_date)
             self._step_technical_factors(stock_codes, target_date)
+            self._step_factor_labels(stock_codes, target_date)
+            self._step_factor_ic(target_date)
             quality_report = self._step_quality_report(target_date)
             self._step_source_audit(stock_codes, target_date)
             self._step_maintenance()
@@ -769,6 +771,99 @@ class Pipeline:
                     merged = pd.concat(batch, ignore_index=True)
                     self.db.upsert_technical_factors(merged)
                     batch.clear()
+
+    def _step_factor_labels(self, stock_codes: list, target_date: str):
+        """按配置从日 K 派生未来收益标签。"""
+        label_cfg = self.config.get("fetch", {}).get("factor_labels", {})
+        if not label_cfg.get("enabled", False):
+            return
+
+        from core.factors.labels import derive_forward_return_labels
+
+        end_date = (
+            target_date or datetime.now().strftime("%Y%m%d")
+        ).replace("-", "")
+        lookback_days = int(label_cfg.get("lookback_days", 180))
+        batch_size = int(label_cfg.get("batch_size", 100))
+        horizons = tuple(int(h) for h in label_cfg.get("horizons", [5, 10, 20]))
+        drawdown_horizon = int(label_cfg.get("drawdown_horizon", 20))
+        max_stocks = label_cfg.get("max_stocks_per_run")
+        codes = stock_codes[: int(max_stocks)] if max_stocks else stock_codes
+        start_date = (
+            pd.Timestamp(end_date) - pd.Timedelta(days=lookback_days)
+        ).strftime("%Y%m%d")
+
+        logger.info("派生未来收益标签...")
+        batch = []
+        for i, ts_code in enumerate(codes, start=1):
+            kline = self.db.query_daily_range(
+                ts_code,
+                start_date,
+                end_date,
+                columns="ts_code, trade_date, close",
+            )
+            if not kline.empty:
+                labels = derive_forward_return_labels(
+                    kline,
+                    horizons=horizons,
+                    drawdown_horizon=drawdown_horizon,
+                )
+                if not labels.empty:
+                    batch.append(labels)
+            if len(batch) >= batch_size or i == len(codes):
+                if batch:
+                    merged = pd.concat(batch, ignore_index=True)
+                    self.db.upsert_factor_labels(merged)
+                    batch.clear()
+
+    def _step_factor_ic(self, target_date: str):
+        """按配置评估技术因子的截面 IC/IR。"""
+        ic_cfg = self.config.get("evaluation", {}).get("factor_ic", {})
+        if not ic_cfg.get("enabled", False):
+            return
+
+        from core.evaluation.icir import evaluate_factor_ic
+
+        end_date = (
+            target_date or datetime.now().strftime("%Y%m%d")
+        ).replace("-", "")
+        lookback_days = int(ic_cfg.get("lookback_days", 365))
+        start_date = (
+            pd.Timestamp(end_date) - pd.Timedelta(days=lookback_days)
+        ).strftime("%Y%m%d")
+        factor_columns = ic_cfg.get(
+            "factor_columns",
+            [
+                "return_20d",
+                "return_60d",
+                "volatility_20d",
+                "ma20_bias",
+                "ma60_bias",
+                "max_drawdown_60d",
+                "volume_ratio_20d",
+                "liquidity_20d",
+            ],
+        )
+        label_column = ic_cfg.get("label_column", "forward_return_20d")
+        method = ic_cfg.get("method", "spearman")
+
+        logger.info("评估因子 IC/IR...")
+        dataset = self.db.query_factor_dataset(
+            start_date,
+            end_date,
+            factor_columns=factor_columns,
+            label_column=label_column,
+        )
+        if dataset.empty:
+            return
+        detail, summary = evaluate_factor_ic(
+            dataset,
+            factor_columns=factor_columns,
+            label_column=label_column,
+            method=method,
+        )
+        if not detail.empty or not summary.empty:
+            self.db.upsert_factor_ic(detail, summary)
 
     def _step_source_audit(self, stock_codes: list, target_date: str):
         """对腾讯和配置的第二数据源做轻量抽样对账。"""

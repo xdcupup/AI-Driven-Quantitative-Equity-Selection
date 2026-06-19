@@ -146,6 +146,8 @@ class FakeDB:
         self.statement_batches = []
         self.factor_batches = []
         self.technical_factor_batches = []
+        self.label_batches = []
+        self.ic_batches = []
         self.name_history_batches = []
         self.audit_batches = []
         self.daily_basic_batches = []
@@ -221,6 +223,29 @@ class FakeDB:
     def upsert_technical_factors(self, df):
         self.technical_factor_batches.append(df.copy())
         return len(df)
+
+    def upsert_factor_labels(self, df):
+        self.label_batches.append(df.copy())
+        return len(df)
+
+    def query_factor_dataset(
+        self,
+        start_date,
+        end_date,
+        factor_columns,
+        label_column,
+    ):
+        return pd.DataFrame({
+            "trade_date": pd.to_datetime(["2026-06-01"] * 4 + ["2026-06-02"] * 4),
+            "ts_code": ["A", "B", "C", "D"] * 2,
+            "return_20d": [1.0, 2.0, 3.0, 4.0, 2.0, 4.0, 6.0, 8.0],
+            "ma20_bias": [4.0, 3.0, 2.0, 1.0, 8.0, 6.0, 4.0, 2.0],
+            "forward_return_20d": [2.0, 4.0, 6.0, 8.0, 1.0, 2.0, 3.0, 4.0],
+        })
+
+    def upsert_factor_ic(self, detail, summary):
+        self.ic_batches.append((detail.copy(), summary.copy()))
+        return len(detail) + len(summary)
 
     def upsert_daily_basic(self, df):
         self.daily_basic_batches.append(df.copy())
@@ -394,6 +419,45 @@ class PipelineResearchDataTest(unittest.TestCase):
         self.assertFalse(factors.empty)
         self.assertIn("return_20d", factors.columns)
         self.assertEqual(factors.iloc[-1]["source"], "daily_kline")
+
+    def test_factor_label_step_derives_and_upserts_for_codes(self):
+        pipeline = self.make_pipeline({
+            "fetch": {
+                "factor_labels": {
+                    "enabled": True,
+                    "lookback_days": 120,
+                    "horizons": [5, 10, 20],
+                    "drawdown_horizon": 20,
+                }
+            }
+        })
+
+        pipeline._step_factor_labels(["000001.SZ"], "2026-06-18")
+
+        self.assertEqual(len(pipeline.db.label_batches), 1)
+        labels = pipeline.db.label_batches[0]
+        self.assertFalse(labels.empty)
+        self.assertIn("forward_return_20d", labels.columns)
+        self.assertEqual(labels.iloc[0]["source"], "daily_kline")
+
+    def test_factor_ic_step_evaluates_and_upserts_results(self):
+        pipeline = self.make_pipeline({
+            "evaluation": {
+                "factor_ic": {
+                    "enabled": True,
+                    "lookback_days": 30,
+                    "factor_columns": ["return_20d", "ma20_bias"],
+                    "label_column": "forward_return_20d",
+                }
+            }
+        })
+
+        pipeline._step_factor_ic("2026-06-18")
+
+        self.assertEqual(len(pipeline.db.ic_batches), 1)
+        detail, summary = pipeline.db.ic_batches[0]
+        self.assertEqual(len(detail), 4)
+        self.assertEqual(set(summary["factor_name"]), {"return_20d", "ma20_bias"})
 
     def test_stock_name_history_step_fetches_and_upserts_enabled_batch(self):
         pipeline = self.make_pipeline({

@@ -58,12 +58,35 @@ fetch:
     lookback_days: 120       # 至少覆盖 60 日窗口，留出自然日冗余
     batch_size: 100          # 每 N 只股票批量写入一次
     max_stocks_per_run: null # 留空=全量；调试可限制只跑部分股票
+  factor_labels:
+    enabled: false           # 从 daily_kline 派生未来收益/回撤标签
+    lookback_days: 180       # 标签需要未来窗口，通常和技术因子一起批量跑
+    horizons: [5, 10, 20]
+    drawdown_horizon: 20
+    batch_size: 100
+    max_stocks_per_run: null
   # 资金流向（可选）
   money_flow:
     enabled: false
   # 交易日历起止
   start_date: "20260101"     # 只跑2026年数据
   end_date: "today"          # "today" = 自动取当天
+
+evaluation:
+  factor_ic:
+    enabled: false
+    lookback_days: 365
+    factor_columns:
+      - return_20d
+      - return_60d
+      - volatility_20d
+      - ma20_bias
+      - ma60_bias
+      - max_drawdown_60d
+      - volume_ratio_20d
+      - liquidity_20d
+    label_column: forward_return_20d
+    method: spearman
 
 # --- 数据存储 ---
 storage:

@@ -163,6 +163,63 @@ class QuantDBTest(unittest.TestCase):
         self.assertEqual(saved.iloc[0]["return_20d"], 12.0)
         self.assertEqual(saved.iloc[0]["max_drawdown_60d"], -8.0)
 
+    def test_upsert_factor_labels_and_ic_results(self):
+        technical_factors = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "trade_date": pd.to_datetime(["2026-06-18"]),
+            "return_20d": [12.0],
+            "ma20_bias": [2.2],
+            "source": ["daily_kline"],
+        })
+        labels = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "trade_date": pd.to_datetime(["2026-06-18"]),
+            "forward_return_5d": [3.0],
+            "forward_return_10d": [5.0],
+            "forward_return_20d": [8.0],
+            "max_drawdown_20d": [-4.0],
+            "source": ["daily_kline"],
+        })
+        ic_detail = pd.DataFrame({
+            "factor_name": ["return_20d"],
+            "trade_date": pd.to_datetime(["2026-06-18"]),
+            "label_name": ["forward_return_20d"],
+            "ic": [0.25],
+            "sample_count": [100],
+            "method": ["spearman"],
+            "source": ["factor_ic"],
+        })
+        ic_summary = pd.DataFrame({
+            "factor_name": ["return_20d"],
+            "label_name": ["forward_return_20d"],
+            "ic_mean": [0.25],
+            "ic_std": [0.1],
+            "ic_ir": [2.5],
+            "sample_dates": [20],
+            "method": ["spearman"],
+            "source": ["factor_ic"],
+        })
+
+        self.db.upsert_technical_factors(technical_factors)
+        self.db.upsert_factor_labels(labels)
+        self.db.upsert_factor_ic(ic_detail, ic_summary)
+
+        saved_labels = self.db.query_factor_labels_between("2026-06-01", "2026-06-30")
+        dataset = self.db.query_factor_dataset(
+            "2026-06-01",
+            "2026-06-30",
+            factor_columns=["return_20d", "ma20_bias"],
+            label_column="forward_return_20d",
+        )
+        saved_detail = self.db.query_sql("SELECT * FROM factor_ic_detail")
+        saved_summary = self.db.query_sql("SELECT * FROM factor_ic_summary")
+
+        self.assertEqual(saved_labels.iloc[0]["forward_return_20d"], 8.0)
+        self.assertEqual(dataset.iloc[0]["return_20d"], 12.0)
+        self.assertEqual(dataset.iloc[0]["forward_return_20d"], 8.0)
+        self.assertEqual(saved_detail.iloc[0]["sample_count"], 100)
+        self.assertEqual(saved_summary.iloc[0]["ic_ir"], 2.5)
+
     def test_query_financial_statements_accepts_compact_dates(self):
         statements = pd.DataFrame({
             "ts_code": ["000001.SZ"],

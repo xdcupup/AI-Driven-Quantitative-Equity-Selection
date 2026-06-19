@@ -15,6 +15,7 @@ AI 量化选股系统的数据采集层。当前重构目标是按 `a-stock-data
 - 已完成新浪三表原始财报接口和 `financial_statements` 入库：支持资产负债表、利润表、现金流量表长表读取。
 - 已完成基础财务因子派生：从原始三表生成 `financial_factors`。
 - 已完成基础技术/量价因子派生：从 `daily_kline` 生成 `technical_factors`。
+- 已完成第一版标签和 IC/IR 评估：从 `daily_kline` 生成 `factor_labels`，从因子和标签生成 `factor_ic_detail` / `factor_ic_summary`。
 - 已完成东财特色数据客户端：所有请求必须走 `em_get` 串行限速入口。
 - 已完成 `AStockDataGateway`：pipeline 默认可切到新数据层。
 
@@ -118,6 +119,12 @@ fetch:
     enabled: true
   technical_factors:
     enabled: true
+  factor_labels:
+    enabled: true
+
+evaluation:
+  factor_ic:
+    enabled: true
 ```
 
 ## 常用命令
@@ -179,6 +186,8 @@ tail -n 120 logs/pipeline.log
 - `financial_statements`：新浪三表原始长表，字段为 `ts_code/report_type/end_date/ann_date/item_order/item/value/value_text/item_yoy/source`。`item_order` 保留原始行序，避免重复科目名覆盖；`value_text` 保留原始值，`value` 尽量转为数字，文本科目保留在 `value_text`。
 - `financial_factors`：财务因子宽表，字段包括 `revenue/net_profit/total_assets/total_liabilities/equity/operating_cashflow/revenue_yoy/net_profit_yoy/debt_to_assets/roe/operating_cashflow_to_profit`。查询时优先用 `ann_date` 防前视。
 - `technical_factors`：技术/量价因子宽表，字段包括 `return_5d/return_20d/return_60d/volatility_20d/ma20_bias/ma60_bias/max_drawdown_60d/volume_ratio_20d/liquidity_20d`。来源为 `daily_kline`，查询时按 `trade_date <= as_of_date` 取最新可见行。
+- `factor_labels`：监督学习标签表，字段包括 `forward_return_5d/forward_return_10d/forward_return_20d/max_drawdown_20d`。这些字段使用信号日之后的价格生成，只能用于训练、评估和回测归因，不能作为信号日可见因子。
+- `factor_ic_detail` / `factor_ic_summary`：因子 IC/IR 评估结果，默认用 Spearman 截面相关衡量技术因子对 `forward_return_20d` 的预测能力。
 
 ## 开发说明
 
@@ -194,6 +203,6 @@ tail -n 120 logs/pipeline.log
 
 ## 下一步
 
-- 建立标签表：未来 5/10/20 日收益、超额收益和回撤标签。
-- 建立 IC/IR 评估和第一版选股打分器。
+- 建立第一版选股打分器，把财务因子、技术因子和 IC/IR 结果接起来。
+- 建立简单回测模块，验证打分器的分层收益和回撤。
 - 为东财独有数据补齐龙虎榜、解禁、融资融券、大宗交易、股东户数、分红、研报和新闻模块。

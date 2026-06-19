@@ -213,6 +213,52 @@ CREATE INDEX IF NOT EXISTS idx_technical_factor_date
 ON technical_factors (trade_date);
 
 -- ====================================================================
+-- 监督学习标签表（一行一股票一交易日）
+-- ====================================================================
+CREATE TABLE IF NOT EXISTS factor_labels (
+    ts_code       VARCHAR NOT NULL,
+    trade_date    DATE NOT NULL,
+    forward_return_5d DOUBLE,
+    forward_return_10d DOUBLE,
+    forward_return_20d DOUBLE,
+    max_drawdown_20d DOUBLE,
+    source        VARCHAR,
+    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (ts_code, trade_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_factor_labels_date
+ON factor_labels (trade_date);
+
+-- ====================================================================
+-- 因子 IC/IR 评估结果
+-- ====================================================================
+CREATE TABLE IF NOT EXISTS factor_ic_detail (
+    factor_name  VARCHAR NOT NULL,
+    trade_date   DATE NOT NULL,
+    label_name   VARCHAR NOT NULL,
+    ic           DOUBLE,
+    sample_count INTEGER,
+    method       VARCHAR,
+    source       VARCHAR,
+    updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (factor_name, trade_date, label_name, method)
+);
+
+CREATE TABLE IF NOT EXISTS factor_ic_summary (
+    factor_name  VARCHAR NOT NULL,
+    label_name   VARCHAR NOT NULL,
+    ic_mean      DOUBLE,
+    ic_std       DOUBLE,
+    ic_ir        DOUBLE,
+    sample_dates INTEGER,
+    method       VARCHAR,
+    source       VARCHAR,
+    updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (factor_name, label_name, method)
+);
+
+-- ====================================================================
 -- 股票名称与 ST 历史（用于历史过滤，降低幸存者/状态偏差）
 -- ====================================================================
 CREATE TABLE IF NOT EXISTS stock_name_history (
@@ -437,6 +483,18 @@ class QuantDB:
         )
         self.conn.execute(
             "ALTER TABLE technical_factors ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        )
+        self.conn.execute(
+            "ALTER TABLE factor_labels ADD COLUMN IF NOT EXISTS source VARCHAR"
+        )
+        self.conn.execute(
+            "ALTER TABLE factor_labels ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        )
+        self.conn.execute(
+            "ALTER TABLE factor_ic_detail ADD COLUMN IF NOT EXISTS source VARCHAR"
+        )
+        self.conn.execute(
+            "ALTER TABLE factor_ic_summary ADD COLUMN IF NOT EXISTS source VARCHAR"
         )
 
         logger.info("数据库 Schema 初始化完成")
@@ -806,6 +864,151 @@ class QuantDB:
         logger.debug(f"技术因子 UPSERT: {count} 行")
         return count
 
+    def upsert_factor_labels(self, df: pd.DataFrame) -> int:
+        """写入监督学习标签。"""
+        if df.empty:
+            return 0
+
+        required = {"ts_code", "trade_date"}
+        missing = required - set(df.columns)
+        if missing:
+            logger.error(f"标签数据缺少必要字段: {missing}")
+            return 0
+
+        df = df.copy()
+        df["trade_date"] = pd.to_datetime(df["trade_date"])
+        if "source" not in df.columns:
+            df["source"] = None
+
+        upsert_cols = [
+            "ts_code",
+            "trade_date",
+            "forward_return_5d",
+            "forward_return_10d",
+            "forward_return_20d",
+            "max_drawdown_20d",
+            "source",
+        ]
+        for col in upsert_cols:
+            if col not in df.columns:
+                df[col] = None
+        for col in upsert_cols:
+            if col not in {"ts_code", "trade_date", "source"}:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        self.conn.register("_tmp_factor_labels", df[upsert_cols])
+        count = self.conn.execute("""
+            INSERT INTO factor_labels (
+                ts_code, trade_date, forward_return_5d, forward_return_10d,
+                forward_return_20d, max_drawdown_20d, source
+            )
+            SELECT
+                ts_code, trade_date, forward_return_5d, forward_return_10d,
+                forward_return_20d, max_drawdown_20d, source
+            FROM _tmp_factor_labels
+            ON CONFLICT (ts_code, trade_date) DO UPDATE SET
+                forward_return_5d = EXCLUDED.forward_return_5d,
+                forward_return_10d = EXCLUDED.forward_return_10d,
+                forward_return_20d = EXCLUDED.forward_return_20d,
+                max_drawdown_20d = EXCLUDED.max_drawdown_20d,
+                source = EXCLUDED.source,
+                updated_at = now()
+        """).fetchone()[0]
+
+        logger.debug(f"标签 UPSERT: {count} 行")
+        return count
+
+    def upsert_factor_ic(
+        self,
+        detail: pd.DataFrame,
+        summary: pd.DataFrame,
+    ) -> int:
+        """写入因子 IC 明细和汇总。"""
+        total = 0
+        if not detail.empty:
+            detail = detail.copy()
+            detail["trade_date"] = pd.to_datetime(detail["trade_date"])
+            if "source" not in detail.columns:
+                detail["source"] = None
+            detail_cols = [
+                "factor_name",
+                "trade_date",
+                "label_name",
+                "ic",
+                "sample_count",
+                "method",
+                "source",
+            ]
+            for col in detail_cols:
+                if col not in detail.columns:
+                    detail[col] = None
+            detail["ic"] = pd.to_numeric(detail["ic"], errors="coerce")
+            detail["sample_count"] = pd.to_numeric(
+                detail["sample_count"], errors="coerce"
+            ).astype("Int64")
+            self.conn.register("_tmp_factor_ic_detail", detail[detail_cols])
+            total += self.conn.execute("""
+                INSERT INTO factor_ic_detail (
+                    factor_name, trade_date, label_name, ic,
+                    sample_count, method, source
+                )
+                SELECT
+                    factor_name, trade_date, label_name, ic,
+                    sample_count, method, source
+                FROM _tmp_factor_ic_detail
+                ON CONFLICT (factor_name, trade_date, label_name, method)
+                DO UPDATE SET
+                    ic = EXCLUDED.ic,
+                    sample_count = EXCLUDED.sample_count,
+                    source = EXCLUDED.source,
+                    updated_at = now()
+            """).fetchone()[0]
+
+        if not summary.empty:
+            summary = summary.copy()
+            if "source" not in summary.columns:
+                summary["source"] = None
+            summary_cols = [
+                "factor_name",
+                "label_name",
+                "ic_mean",
+                "ic_std",
+                "ic_ir",
+                "sample_dates",
+                "method",
+                "source",
+            ]
+            for col in summary_cols:
+                if col not in summary.columns:
+                    summary[col] = None
+            for col in ["ic_mean", "ic_std", "ic_ir"]:
+                summary[col] = pd.to_numeric(summary[col], errors="coerce")
+            summary["sample_dates"] = pd.to_numeric(
+                summary["sample_dates"], errors="coerce"
+            ).astype("Int64")
+            self.conn.register("_tmp_factor_ic_summary", summary[summary_cols])
+            total += self.conn.execute("""
+                INSERT INTO factor_ic_summary (
+                    factor_name, label_name, ic_mean, ic_std, ic_ir,
+                    sample_dates, method, source
+                )
+                SELECT
+                    factor_name, label_name, ic_mean, ic_std, ic_ir,
+                    sample_dates, method, source
+                FROM _tmp_factor_ic_summary
+                ON CONFLICT (factor_name, label_name, method)
+                DO UPDATE SET
+                    ic_mean = EXCLUDED.ic_mean,
+                    ic_std = EXCLUDED.ic_std,
+                    ic_ir = EXCLUDED.ic_ir,
+                    sample_dates = EXCLUDED.sample_dates,
+                    source = EXCLUDED.source,
+                    updated_at = now()
+            """).fetchone()[0]
+
+        logger.debug(f"因子 IC UPSERT: {total} 行")
+        return total
+
     def upsert_stock_name_history(self, df: pd.DataFrame) -> int:
         """写入股票名称/ST 历史。"""
         if df.empty:
@@ -1017,6 +1220,63 @@ class QuantDB:
             ) = 1
             ORDER BY ts_code
         """, [_date_param(as_of_date)]).fetchdf()
+
+    def query_factor_labels_between(
+        self,
+        start_date: str,
+        end_date: str,
+    ) -> pd.DataFrame:
+        """查询指定区间的监督学习标签。"""
+        return self.conn.execute("""
+            SELECT *
+            FROM factor_labels
+            WHERE trade_date BETWEEN ?::DATE AND ?::DATE
+            ORDER BY trade_date, ts_code
+        """, [_date_param(start_date), _date_param(end_date)]).fetchdf()
+
+    def query_factor_dataset(
+        self,
+        start_date: str,
+        end_date: str,
+        factor_columns: list[str],
+        label_column: str,
+    ) -> pd.DataFrame:
+        """查询技术因子和标签拼接后的评估数据集。"""
+        allowed_factors = {
+            "return_5d",
+            "return_20d",
+            "return_60d",
+            "volatility_20d",
+            "ma20_bias",
+            "ma60_bias",
+            "max_drawdown_60d",
+            "volume_ratio_20d",
+            "liquidity_20d",
+        }
+        allowed_labels = {
+            "forward_return_5d",
+            "forward_return_10d",
+            "forward_return_20d",
+            "max_drawdown_20d",
+        }
+        selected_factors = [col for col in factor_columns if col in allowed_factors]
+        if not selected_factors or label_column not in allowed_labels:
+            return pd.DataFrame(columns=["trade_date", "ts_code"] + selected_factors + [label_column])
+
+        select_cols = ", ".join([f"t.{col}" for col in selected_factors])
+        return self.conn.execute(f"""
+            SELECT
+                t.trade_date,
+                t.ts_code,
+                {select_cols},
+                l.{label_column}
+            FROM technical_factors t
+            INNER JOIN factor_labels l
+              ON t.ts_code = l.ts_code
+             AND t.trade_date = l.trade_date
+            WHERE t.trade_date BETWEEN ?::DATE AND ?::DATE
+            ORDER BY t.trade_date, t.ts_code
+        """, [_date_param(start_date), _date_param(end_date)]).fetchdf()
 
     def get_latest_trade_date(self) -> Optional[date]:
         """获取数据库中最近的交易日"""
