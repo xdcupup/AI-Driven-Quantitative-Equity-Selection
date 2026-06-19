@@ -71,6 +71,12 @@ fetch:
   # 交易日历起止
   start_date: "20260101"     # 只跑2026年数据
   end_date: "today"          # "today" = 自动取当天
+  stock_concepts:
+    enabled: false
+    max_stocks: 100
+  hot_themes:
+    enabled: false
+    top_themes: 10
 
 evaluation:
   factor_ic:

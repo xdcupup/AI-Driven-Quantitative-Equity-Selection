@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alpha Trader — AI 量化仪表盘</title>
+<script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg-primary: #131722; --bg-secondary: #1e222d; --bg-tertiary: #2a2e39;
+  --text-primary: #d1d4dc; --text-secondary: #787b86; --text-positive: #089981;
+  --text-negative: #f23645; --border: #2a2e39; --accent: #2962ff;
+  --accent-hover: #1e4bd8;
+}
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg-primary); color: var(--text-primary); font-size: 13px; overflow: hidden; height: 100vh; }
+.layout { display: grid; grid-template-columns: 280px 1fr 300px; grid-template-rows: auto 1fr; height: 100vh; }
+
+/* === Header === */
+.header { grid-column: 1 / -1; background: var(--bg-secondary); border-bottom: 1px solid var(--border); padding: 8px 16px; display: flex; align-items: center; justify-content: space-between; }
+.header h1 { font-size: 16px; font-weight: 600; color: var(--text-primary); }
+.header h1 span { color: var(--accent); }
+.header-time { color: var(--text-secondary); font-size: 12px; }
+.header-actions { display: flex; gap: 8px; }
+.btn { padding: 6px 14px; border-radius: 4px; border: none; cursor: pointer; font-size: 12px; font-weight: 500; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-secondary { background: var(--bg-tertiary); color: var(--text-primary); }
+.btn-secondary:hover { background: #3a3e49; }
+
+/* === Watchlist (Sidebar Left) === */
+.watchlist { background: var(--bg-secondary); border-right: 1px solid var(--border); overflow-y: auto; }
+.watchlist-header { padding: 12px 12px 8px; border-bottom: 1px solid var(--border); font-size: 11px; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 0.5px; display: flex; justify-content: space-between; }
+.watchlist-search { padding: 8px 12px; }
+.watchlist-search input { width: 100%; padding: 6px 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 4px; color: var(--text-primary); font-size: 12px; outline: none; }
+.watchlist-search input:focus { border-color: var(--accent); }
+.watchlist-item { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; padding: 8px 12px; cursor: pointer; border-left: 3px solid transparent; transition: background 0.15s; align-items: center; }
+.watchlist-item:hover { background: var(--bg-tertiary); }
+.watchlist-item.active { border-left-color: var(--accent); background: rgba(41,98,255,0.08); }
+.watchlist-code { font-weight: 500; font-size: 13px; }
+.watchlist-name { font-size: 11px; color: var(--text-secondary); }
+.watchlist-price { text-align: right; font-weight: 500; }
+.watchlist-pct { text-align: right; font-size: 12px; font-weight: 500; min-width: 60px; }
+.positive { color: var(--text-positive); }
+.negative { color: var(--text-negative); }
+.neutral { color: var(--text-secondary); }
+
+/* === Chart Area === */
+.chart-area { position: relative; }
+.chart-toolbar { padding: 8px 16px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid var(--border); background: var(--bg-primary); }
+.chart-toolbar .stock-label { font-size: 18px; font-weight: 600; }
+.chart-toolbar .stock-price { font-size: 22px; font-weight: 700; margin-left: 16px; }
+.chart-toolbar .stock-change { font-size: 14px; margin-left: 8px; }
+.chart-toolbar .timeframe { display: flex; gap: 4px; margin-left: auto; }
+.chart-toolbar .timeframe button { padding: 4px 10px; background: transparent; border: 1px solid transparent; border-radius: 4px; color: var(--text-secondary); cursor: pointer; font-size: 12px; }
+.chart-toolbar .timeframe button:hover,.chart-toolbar .timeframe button.active { color: var(--text-primary); border-color: var(--border); background: var(--bg-tertiary); }
+#chart { width: 100%; height: calc(100% - 48px); }
+
+/* === Info Panel (Sidebar Right) === */
+.info-panel { background: var(--bg-secondary); border-left: 1px solid var(--border); overflow-y: auto; }
+.info-header { padding: 12px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+.info-header h3 { font-size: 13px; font-weight: 500; }
+.info-section { padding: 12px; border-bottom: 1px solid var(--border); }
+.info-section h4 { font-size: 11px; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 0.5px; margin-bottom: 8px; }
+.info-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
+.info-label { color: var(--text-secondary); }
+.info-value { font-weight: 500; }
+.info-value.positive { color: var(--text-positive); }
+.info-value.negative { color: var(--text-negative); }
+
+/* === Volume Profile === */
+.volume-bar { display: flex; align-items: center; gap: 8px; padding: 1px 0; }
+.volume-fill { height: 12px; border-radius: 2px; background: rgba(41,98,255,0.3); min-width: 2px; transition: width 0.3s; }
+
+/* === Status Bar === */
+.status-bar { grid-column: 1 / -1; background: var(--bg-secondary); border-top: 1px solid var(--border); padding: 4px 16px; font-size: 11px; color: var(--text-secondary); display: flex; gap: 24px; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Header -->
+  <div class="header">
+    <h1><span>α</span> Alpha Trader</h1>
+    <div class="header-actions">
+      <button class="btn btn-secondary">数据对账</button>
+      <button class="btn btn-secondary">因子看板</button>
+      <button class="btn btn-primary">刷新数据</button>
+    </div>
+    <div class="header-time">📅 2026-06-17</div>
+  </div>
+
+  <!-- Watchlist -->
+  <div class="watchlist" id="watchlist">
+    <div class="watchlist-header">
+      <span>自选股观察</span>
+      <span>5 只</span>
+    </div>
+    <div class="watchlist-search">
+      <input type="text" placeholder="搜索股票代码/名称..." id="searchInput" oninput="filterStocks(this.value)">
+    </div>
+    <div id="stockList"></div>
+  </div>
+
+  <!-- Chart -->
+  <div class="chart-area">
+    <div class="chart-toolbar">
+      <span class="stock-label" id="stockLabel">000002.SZ</span>
+      <span class="stock-price" id="stockPrice"></span>
+      <span class="stock-change" id="stockChange"></span>
+      <div class="timeframe">
+        <button class="active">日线</button>
+        <button>周线</button>
+        <button>月线</button>
+      </div>
+    </div>
+    <div id="chart"></div>
+  </div>
+
+  <!-- Info Panel -->
+  <div class="info-panel">
+    <div class="info-header">
+      <h3>📍 000002.SZ</h3>
+      <span style="color:var(--text-secondary);font-size:12px;">详情</span>
+    </div>
+    <div class="info-section">
+      <h4>行情概览</h4>
+      <div class="info-row"><span class="info-label">最新价</span><span class="info-value" id="infoClose">—</span></div>
+      <div class="info-row"><span class="info-label">涨跌幅</span><span class="info-value" id="infoPct">—</span></div>
+      <div class="info-row"><span class="info-label">最高</span><span class="info-value" id="infoHigh">—</span></div>
+      <div class="info-row"><span class="info-label">最低</span><span class="info-value" id="infoLow">—</span></div>
+      <div class="info-row"><span class="info-label">开盘</span><span class="info-value" id="infoOpen">—</span></div>
+      <div class="info-row"><span class="info-label">成交量</span><span class="info-value" id="infoVol">—</span></div>
+    </div>
+    <div class="info-section">
+      <h4>成交量分布（近10日）</h4>
+      <div id="volumeProfile"></div>
+    </div>
+    <div class="info-section">
+      <h4>系统状态</h4>
+      <div class="info-row"><span class="info-label">数据源</span><span class="info-value">mootdx + 腾讯</span></div>
+      <div class="info-row"><span class="info-label">有数据股票</span><span class="info-value">5 只</span></div>
+      <div class="info-row"><span class="info-label">最新交易日</span><span class="info-value">2026-06-17</span></div>
+    </div>
+  </div>
+
+  <!-- Status Bar -->
+  <div class="status-bar">
+    <span>🟢 Pipeline: 正常</span>
+    <span>📊 5 只股票已更新</span>
+    <span>🔄 上次更新: 2026-06-17</span>
+  </div>
+</div>
+
+<script>
+const STOCKS = [{"code": "000002.SZ", "name": "万  科Ａ", "close": 3.07, "pct": 0.0, "vol": 112600200.0}, {"code": "000001.SZ", "name": "平安银行", "close": 10.83, "pct": -1.01, "vol": 52731200.0}, {"code": "000006.SZ", "name": "深振业Ａ", "close": 7.73, "pct": -2.52, "vol": 13771400.0}, {"code": "000008.SZ", "name": "神州高铁", "close": 2.5, "pct": -1.57, "vol": 12714700.0}, {"code": "000007.SZ", "name": "全新好", "close": 13.58, "pct": -5.3, "vol": 7259800.0}];
+const KLINE_DATA = [{"time": "2026-01-05", "open": 4.64, "high": 4.78, "low": 4.63, "close": 4.75, "volume": 193853500.0}, {"time": "2026-01-06", "open": 4.73, "high": 4.86, "low": 4.72, "close": 4.83, "volume": 225237600.0}, {"time": "2026-01-07", "open": 4.81, "high": 4.86, "low": 4.73, "close": 4.73, "volume": 158244400.0}, {"time": "2026-01-08", "open": 4.73, "high": 5.0, "low": 4.69, "close": 4.9, "volume": 311990100.0}, {"time": "2026-01-09", "open": 4.87, "high": 5.04, "low": 4.81, "close": 4.96, "volume": 262671100.0}, {"time": "2026-01-12", "open": 4.89, "high": 4.93, "low": 4.85, "close": 4.88, "volume": 199073000.0}, {"time": "2026-01-13", "open": 4.87, "high": 4.97, "low": 4.82, "close": 4.83, "volume": 195098100.0}, {"time": "2026-01-14", "open": 4.82, "high": 4.85, "low": 4.69, "close": 4.69, "volume": 279838400.0}, {"time": "2026-01-15", "open": 4.71, "high": 4.96, "low": 4.71, "close": 4.85, "volume": 319556200.0}, {"time": "2026-01-16", "open": 4.85, "high": 4.86, "low": 4.72, "close": 4.73, "volume": 209304600.0}, {"time": "2026-01-19", "open": 4.7, "high": 4.77, "low": 4.68, "close": 4.73, "volume": 116845000.0}, {"time": "2026-01-20", "open": 4.71, "high": 4.85, "low": 4.7, "close": 4.79, "volume": 210200600.0}, {"time": "2026-01-21", "open": 4.86, "high": 5.11, "low": 4.81, "close": 5.01, "volume": 511786000.0}, {"time": "2026-01-22", "open": 5.01, "high": 5.02, "low": 4.92, "close": 4.95, "volume": 291810300.0}, {"time": "2026-01-23", "open": 4.97, "high": 4.98, "low": 4.89, "close": 4.95, "volume": 260218000.0}, {"time": "2026-01-26", "open": 4.92, "high": 4.97, "low": 4.81, "close": 4.82, "volume": 270982200.0}, {"time": "2026-01-27", "open": 4.81, "high": 4.83, "low": 4.72, "close": 4.75, "volume": 174565400.0}, {"time": "2026-01-28", "open": 4.88, "high": 4.93, "low": 4.81, "close": 4.86, "volume": 279920800.0}, {"time": "2026-01-29", "open": 4.82, "high": 5.18, "low": 4.77, "close": 5.13, "volume": 605243400.0}, {"time": "2026-01-30", "open": 5.06, "high": 5.07, "low": 4.88, "close": 4.88, "volume": 374052500.0}, {"time": "2026-02-02", "open": 4.7, "high": 4.8, "low": 4.66, "close": 4.68, "volume": 301015700.0}, {"time": "2026-02-03", "open": 4.72, "high": 4.77, "low": 4.67, "close": 4.7, "volume": 164034000.0}, {"time": "2026-02-04", "open": 4.68, "high": 4.92, "low": 4.67, "close": 4.9, "volume": 353254800.0}, {"time": "2026-02-05", "open": 4.86, "high": 4.92, "low": 4.84, "close": 4.88, "volume": 214093400.0}, {"time": "2026-02-06", "open": 4.82, "high": 4.86, "low": 4.78, "close": 4.81, "volume": 162512600.0}, {"time": "2026-02-09", "open": 4.83, "high": 5.07, "low": 4.83, "close": 4.96, "volume": 281848500.0}, {"time": "2026-02-10", "open": 4.97, "high": 4.98, "low": 4.87, "close": 4.88, "volume": 161955500.0}, {"time": "2026-02-11", "open": 4.88, "high": 4.91, "low": 4.83, "close": 4.89, "volume": 135996600.0}, {"time": "2026-02-12", "open": 4.93, "high": 5.06, "low": 4.92, "close": 4.92, "volume": 294856500.0}, {"time": "2026-02-13", "open": 4.95, "high": 4.99, "low": 4.88, "close": 4.97, "volume": 224573200.0}, {"time": "2026-02-24", "open": 4.94, "high": 4.96, "low": 4.9, "close": 4.92, "volume": 155701900.0}, {"time": "2026-02-25", "open": 4.92, "high": 5.07, "low": 4.91, "close": 5.0, "volume": 246730900.0}, {"time": "2026-02-26", "open": 4.99, "high": 5.0, "low": 4.81, "close": 4.82, "volume": 278738700.0}, {"time": "2026-02-27", "open": 4.83, "high": 4.84, "low": 4.79, "close": 4.84, "volume": 113276800.0}, {"time": "2026-03-02", "open": 4.76, "high": 4.82, "low": 4.73, "close": 4.75, "volume": 149150700.0}, {"time": "2026-03-03", "open": 4.75, "high": 4.78, "low": 4.66, "close": 4.67, "volume": 159681700.0}, {"time": "2026-03-04", "open": 4.64, "high": 4.68, "low": 4.59, "close": 4.62, "volume": 117689600.0}, {"time": "2026-03-05", "open": 4.65, "high": 4.73, "low": 4.65, "close": 4.69, "volume": 96074300.0}, {"time": "2026-03-06", "open": 4.67, "high": 4.72, "low": 4.65, "close": 4.72, "volume": 93790500.0}, {"time": "2026-03-09", "open": 4.65, "high": 4.67, "low": 4.62, "close": 4.65, "volume": 92022300.0}, {"time": "2026-03-10", "open": 4.66, "high": 4.69, "low": 4.65, "close": 4.67, "volume": 63955600.0}, {"time": "2026-03-11", "open": 4.66, "high": 4.69, "low": 4.64, "close": 4.67, "volume": 77062300.0}, {"time": "2026-03-12", "open": 4.66, "high": 4.68, "low": 4.63, "close": 4.65, "volume": 75863100.0}, {"time": "2026-03-13", "open": 4.65, "high": 4.73, "low": 4.64, "close": 4.66, "volume": 116130100.0}, {"time": "2026-03-16", "open": 4.66, "high": 4.72, "low": 4.64, "close": 4.66, "volume": 90004000.0}, {"time": "2026-03-17", "open": 4.68, "high": 4.76, "low": 4.66, "close": 4.7, "volume": 155801600.0}, {"time": "2026-03-18", "open": 4.68, "high": 4.69, "low": 4.61, "close": 4.63, "volume": 108765300.0}, {"time": "2026-03-19", "open": 4.61, "high": 4.63, "low": 4.5, "close": 4.5, "volume": 140671700.0}, {"time": "2026-03-20", "open": 4.51, "high": 4.53, "low": 4.33, "close": 4.34, "volume": 182408700.0}, {"time": "2026-03-23", "open": 4.25, "high": 4.26, "low": 4.01, "close": 4.02, "volume": 212064800.0}, {"time": "2026-03-24", "open": 4.09, "high": 4.11, "low": 4.02, "close": 4.09, "volume": 91531300.0}, {"time": "2026-03-25", "open": 4.08, "high": 4.14, "low": 4.07, "close": 4.12, "volume": 86515600.0}, {"time": "2026-03-26", "open": 4.1, "high": 4.14, "low": 4.03, "close": 4.04, "volume": 84825900.0}, {"time": "2026-03-27", "open": 4.01, "high": 4.07, "low": 3.98, "close": 4.06, "volume": 65723100.0}, {"time": "2026-03-30", "open": 4.0, "high": 4.03, "low": 3.96, "close": 4.01, "volume": 94848100.0}, {"time": "2026-03-31", "open": 4.02, "high": 4.08, "low": 3.98, "close": 3.99, "volume": 98965700.0}, {"time": "2026-04-01", "open": 4.04, "high": 4.07, "low": 3.99, "close": 4.04, "volume": 106847000.0}, {"time": "2026-04-02", "open": 4.01, "high": 4.02, "low": 3.91, "close": 3.92, "volume": 123161100.0}, {"time": "2026-04-03", "open": 3.92, "high": 3.93, "low": 3.8, "close": 3.82, "volume": 103542100.0}, {"time": "2026-04-07", "open": 3.8, "high": 3.82, "low": 3.76, "close": 3.81, "volume": 73291100.0}, {"time": "2026-04-08", "open": 3.85, "high": 3.98, "low": 3.84, "close": 3.95, "volume": 122020900.0}, {"time": "2026-04-09", "open": 3.9, "high": 3.91, "low": 3.85, "close": 3.87, "volume": 85780300.0}, {"time": "2026-04-10", "open": 3.87, "high": 3.94, "low": 3.87, "close": 3.89, "volume": 76262200.0}, {"time": "2026-04-13", "open": 3.85, "high": 3.92, "low": 3.84, "close": 3.91, "volume": 81101400.0}, {"time": "2026-04-14", "open": 3.93, "high": 4.04, "low": 3.91, "close": 4.02, "volume": 182275600.0}, {"time": "2026-04-15", "open": 4.01, "high": 4.05, "low": 3.95, "close": 3.97, "volume": 117129900.0}, {"time": "2026-04-16", "open": 3.97, "high": 4.0, "low": 3.94, "close": 3.96, "volume": 68900600.0}, {"time": "2026-04-17", "open": 3.96, "high": 4.02, "low": 3.94, "close": 3.96, "volume": 98442400.0}, {"time": "2026-04-20", "open": 3.94, "high": 3.95, "low": 3.89, "close": 3.93, "volume": 80578600.0}, {"time": "2026-04-21", "open": 3.92, "high": 3.95, "low": 3.89, "close": 3.9, "volume": 72886900.0}, {"time": "2026-04-22", "open": 3.92, "high": 3.92, "low": 3.86, "close": 3.88, "volume": 76465400.0}, {"time": "2026-04-23", "open": 3.87, "high": 3.88, "low": 3.81, "close": 3.81, "volume": 106038500.0}, {"time": "2026-04-24", "open": 3.8, "high": 3.81, "low": 3.74, "close": 3.75, "volume": 90444300.0}, {"time": "2026-04-27", "open": 3.76, "high": 3.76, "low": 3.7, "close": 3.73, "volume": 79930200.0}, {"time": "2026-04-28", "open": 3.73, "high": 3.81, "low": 3.72, "close": 3.75, "volume": 91510000.0}, {"time": "2026-04-29", "open": 3.76, "high": 3.89, "low": 3.76, "close": 3.87, "volume": 145225500.0}, {"time": "2026-04-30", "open": 3.87, "high": 3.95, "low": 3.83, "close": 3.91, "volume": 165954100.0}, {"time": "2026-05-06", "open": 3.94, "high": 4.03, "low": 3.89, "close": 4.01, "volume": 182828700.0}, {"time": "2026-05-07", "open": 4.0, "high": 4.02, "low": 3.96, "close": 3.98, "volume": 113474600.0}, {"time": "2026-05-08", "open": 3.97, "high": 4.03, "low": 3.95, "close": 4.0, "volume": 110976700.0}, {"time": "2026-05-11", "open": 4.0, "high": 4.14, "low": 3.98, "close": 4.09, "volume": 193032100.0}, {"time": "2026-05-12", "open": 4.07, "high": 4.16, "low": 4.02, "close": 4.1, "volume": 177313900.0}, {"time": "2026-05-13", "open": 4.08, "high": 4.1, "low": 3.98, "close": 3.99, "volume": 130876700.0}, {"time": "2026-05-14", "open": 3.99, "high": 4.03, "low": 3.86, "close": 3.87, "volume": 125398700.0}, {"time": "2026-05-15", "open": 3.87, "high": 3.88, "low": 3.76, "close": 3.78, "volume": 120434300.0}, {"time": "2026-05-18", "open": 3.78, "high": 3.79, "low": 3.66, "close": 3.68, "volume": 152337800.0}, {"time": "2026-05-19", "open": 3.68, "high": 3.73, "low": 3.67, "close": 3.71, "volume": 100110800.0}, {"time": "2026-05-20", "open": 3.69, "high": 3.7, "low": 3.59, "close": 3.6, "volume": 120442600.0}, {"time": "2026-05-21", "open": 3.61, "high": 3.62, "low": 3.47, "close": 3.47, "volume": 131737100.0}, {"time": "2026-05-22", "open": 3.48, "high": 3.5, "low": 3.43, "close": 3.46, "volume": 86651800.0}, {"time": "2026-05-25", "open": 3.46, "high": 3.52, "low": 3.43, "close": 3.49, "volume": 95010100.0}, {"time": "2026-05-26", "open": 3.46, "high": 3.48, "low": 3.36, "close": 3.39, "volume": 126463000.0}, {"time": "2026-05-27", "open": 3.38, "high": 3.41, "low": 3.26, "close": 3.33, "volume": 144650400.0}, {"time": "2026-05-28", "open": 3.31, "high": 3.38, "low": 3.27, "close": 3.31, "volume": 120869400.0}, {"time": "2026-05-29", "open": 3.33, "high": 3.64, "low": 3.33, "close": 3.55, "volume": 451492800.0}, {"time": "2026-06-01", "open": 3.45, "high": 3.5, "low": 3.41, "close": 3.47, "volume": 328412500.0}, {"time": "2026-06-02", "open": 3.47, "high": 3.51, "low": 3.35, "close": 3.39, "volume": 256707900.0}, {"time": "2026-06-03", "open": 3.37, "high": 3.38, "low": 3.26, "close": 3.28, "volume": 211460400.0}, {"time": "2026-06-04", "open": 3.26, "high": 3.32, "low": 3.17, "close": 3.21, "volume": 181654400.0}, {"time": "2026-06-05", "open": 3.25, "high": 3.37, "low": 3.23, "close": 3.25, "volume": 164437100.0}, {"time": "2026-06-08", "open": 3.2, "high": 3.25, "low": 3.12, "close": 3.14, "volume": 152490500.0}, {"time": "2026-06-09", "open": 3.16, "high": 3.16, "low": 3.07, "close": 3.12, "volume": 128012300.0}, {"time": "2026-06-10", "open": 3.1, "high": 3.15, "low": 3.08, "close": 3.15, "volume": 119819200.0}, {"time": "2026-06-11", "open": 3.12, "high": 3.19, "low": 3.1, "close": 3.12, "volume": 117393400.0}, {"time": "2026-06-12", "open": 3.14, "high": 3.19, "low": 3.1, "close": 3.16, "volume": 141447600.0}, {"time": "2026-06-15", "open": 3.17, "high": 3.21, "low": 3.1, "close": 3.13, "volume": 127420000.0}, {"time": "2026-06-16", "open": 3.12, "high": 3.13, "low": 3.06, "close": 3.07, "volume": 113953900.0}, {"time": "2026-06-17", "open": 3.07, "high": 3.14, "low": 3.02, "close": 3.07, "volume": 112600200.0}];
+let currentCode = "000002.SZ";
+
+function fmt(v, d=2) { return Number(v).toFixed(d); }
+function fmtVol(v) { if (v >= 1e8) return (v/1e8).toFixed(2)+'亿'; if (v >= 1e4) return (v/1e4).toFixed(2)+'万'; return fmt(v); }
+function pctClass(v) { return v > 0 ? 'positive' : v < 0 ? 'negative' : 'neutral'; }
+
+// Render watchlist
+function renderWatchlist(data) {
+  const el = document.getElementById('stockList');
+  el.innerHTML = data.map(s => `
+    <div class="watchlist-item ${s.code === currentCode ? 'active' : ''}" onclick="switchStock('${s.code}')">
+      <div>
+        <div class="watchlist-code">${s.code.split('.')[0]}</div>
+        <div class="watchlist-name">${s.name}</div>
+      </div>
+      <div class="watchlist-price ${pctClass(s.pct)}">${fmt(s.close)}</div>
+      <div class="watchlist-pct ${pctClass(s.pct)}">${s.pct > 0 ? '+' : ''}${fmt(s.pct, 2)}%</div>
+    </div>
+  `).join('');
+}
+
+function filterStocks(q) {
+  const data = q ? STOCKS.filter(s => s.code.includes(q) || s.name.includes(q)) : STOCKS;
+  renderWatchlist(data);
+}
+
+// Switch stock
+function switchStock(code) {
+  currentCode = code;
+  renderWatchlist(STOCKS);
+  // Reload chart — in production would fetch from API
+  alert('切换到: ' + code + '\n(生产环境中会从DuckDB加载K线数据)');
+}
+
+// Render chart
+function initChart() {
+  const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+    layout: { background: { type: 'solid', color: '#131722' }, textColor: '#d1d4dc' },
+    grid: { vertLines: { color: '#2a2e39' }, horzLines: { color: '#2a2e39' } },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    rightPriceScale: { borderColor: '#2a2e39' },
+    timeScale: { borderColor: '#2a2e39', timeVisible: false, secondsVisible: false },
+    width: document.getElementById('chart').clientWidth,
+    height: document.getElementById('chart').clientHeight,
+  });
+
+  const candleSeries = chart.addCandlestickSeries({
+    upColor: '#089981', downColor: '#f23645', borderDownColor: '#f23645',
+    borderUpColor: '#089981', wickDownColor: '#f23645', wickUpColor: '#089981',
+  });
+  candleSeries.setData(KLINE_DATA);
+
+  const volSeries = chart.addHistogramSeries({
+    priceFormat: { type: 'volume' },
+    priceScaleId: 'volume',
+  });
+  chart.priceScale('volume').applyOptions({
+    scaleMargins: { top: 0.8, bottom: 0 },
+  });
+  volSeries.setData(KLINE_DATA.map(d => ({
+    time: d.time, value: d.volume,
+    color: d.close >= d.open ? 'rgba(8,153,129,0.4)' : 'rgba(242,54,69,0.4)',
+  })));
+
+  // Update info panel
+  const last = KLINE_DATA[KLINE_DATA.length-1];
+  if (last) {
+    const prev = KLINE_DATA[KLINE_DATA.length-2] || last;
+    const pct = ((last.close - prev.close) / prev.close * 100);
+    document.getElementById('stockPrice').textContent = fmt(last.close);
+    document.getElementById('stockPrice').className = pctClass(pct);
+    document.getElementById('stockChange').textContent = (pct > 0 ? '+' : '') + fmt(pct,2) + '%';
+    document.getElementById('stockChange').className = pctClass(pct);
+    document.getElementById('infoClose').textContent = fmt(last.close);
+    document.getElementById('infoPct').textContent = (pct > 0 ? '+' : '') + fmt(pct,2) + '%';
+    document.getElementById('infoPct').className = pctClass(pct);
+    document.getElementById('infoHigh').textContent = fmt(last.high);
+    document.getElementById('infoLow').textContent = fmt(last.low);
+    document.getElementById('infoOpen').textContent = fmt(last.open);
+    document.getElementById('infoVol').textContent = fmtVol(last.volume);
+  }
+
+  // Volume profile
+  const recentVols = KLINE_DATA.slice(-10);
+  const maxVol = Math.max(...recentVols.map(d => d.volume));
+  document.getElementById('volumeProfile').innerHTML = recentVols.map(d =>
+    `<div class="volume-bar">
+      <span style="width:80px;text-align:right;font-size:11px;color:var(--text-secondary)">${d.time.slice(5)}</span>
+      <div class="volume-fill" style="width:${(d.volume/maxVol*100).toFixed(0)}%"></div>
+      <span style="font-size:11px">${fmtVol(d.volume)}</span>
+    </div>`
+  ).join('');
+
+  // Resize
+  window.addEventListener('resize', () => {
+    const w = document.getElementById('chart').clientWidth;
+    const h = document.getElementById('chart').clientHeight;
+    if (w > 0 && h > 0) chart.resize(w, h);
+  });
+
+  return chart;
+}
+
+renderWatchlist(STOCKS);
+initChart();
+</script>
+</body>
+</html>

@@ -200,6 +200,30 @@ class AStockDataGateway:
             secondary_df = pd.DataFrame()
         return self._compare_close(primary, secondary_df, ts_code, start_date, end_date, tolerance_pct, secondary)
 
+    def fetch_stock_concepts(self, ts_code: str) -> pd.DataFrame:
+        """Fetch concept boards for a stock from East Money."""
+        from core.astock.eastmoney.concept import fetch_stock_concepts
+        return fetch_stock_concepts(self.eastmoney, ts_code)
+
+    def fetch_concept_stocks(self, concept_code: str) -> pd.DataFrame:
+        """Fetch stocks in a concept board from East Money."""
+        from core.astock.eastmoney.concept import fetch_concept_stocks
+        return fetch_concept_stocks(self.eastmoney, concept_code)
+
+    def fetch_hot_themes(self, trade_date: str | None = None) -> pd.DataFrame:
+        """Fetch daily THS hot theme rankings."""
+        from core.astock.ths.hot_theme import fetch_hot_themes
+        return fetch_hot_themes(trade_date)
+
+    def fetch_theme_stocks(
+        self,
+        theme_code: str,
+        trade_date: str | None = None,
+    ) -> pd.DataFrame:
+        """Fetch constituent stocks for a THS hot theme."""
+        from core.astock.ths.hot_theme import fetch_theme_stocks
+        return fetch_theme_stocks(theme_code, trade_date)
+
     def _normalize_daily_kline(self, df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
             return _empty_frame(KLINE_COLUMNS)

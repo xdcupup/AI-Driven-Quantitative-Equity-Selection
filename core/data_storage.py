@@ -292,6 +292,60 @@ CREATE TABLE IF NOT EXISTS data_source_audit (
 );
 
 -- ====================================================================
+-- 东财概念板块归属
+-- ====================================================================
+CREATE TABLE IF NOT EXISTS stock_concept_blocks (
+    ts_code       VARCHAR NOT NULL,
+    concept_code  VARCHAR NOT NULL,
+    concept_name  VARCHAR NOT NULL,
+    source        VARCHAR,
+    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (ts_code, concept_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_concept_code
+ON stock_concept_blocks (concept_code);
+
+-- ====================================================================
+-- 同花顺每日热点主题
+-- ====================================================================
+CREATE TABLE IF NOT EXISTS hot_theme_daily (
+    theme_code    VARCHAR NOT NULL,
+    trade_date    DATE NOT NULL,
+    theme_name    VARCHAR NOT NULL,
+    rank          INTEGER,
+    heat_score    DOUBLE,
+    pct_chg       DOUBLE,
+    leading_stock VARCHAR,
+    stock_count   INTEGER,
+    source        VARCHAR,
+    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (theme_code, trade_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hot_theme_date
+ON hot_theme_daily (trade_date);
+
+-- ====================================================================
+-- 同花顺热点个股明细
+-- ====================================================================
+CREATE TABLE IF NOT EXISTS hot_theme_stocks (
+    theme_code    VARCHAR NOT NULL,
+    trade_date    DATE NOT NULL,
+    ts_code       VARCHAR NOT NULL,
+    theme_name    VARCHAR,
+    ts_name       VARCHAR,
+    pct_chg       DOUBLE,
+    reason        VARCHAR,
+    source        VARCHAR,
+    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (theme_code, trade_date, ts_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_theme_stocks_date
+ON hot_theme_stocks (trade_date);
+
+-- ====================================================================
 -- 交易日历表
 -- ====================================================================
 CREATE TABLE IF NOT EXISTS trade_calendar (
@@ -1069,6 +1123,39 @@ class QuantDB:
 
         logger.debug(f"数据源对账 UPSERT: {count} 行")
         return count
+
+    def upsert_stock_concepts(self, df: pd.DataFrame):
+        """Upsert stock->concept mapping."""
+        if df.empty:
+            return
+        self.conn.register("_tmp_concepts", df)
+        self.conn.execute("""
+            INSERT OR REPLACE INTO stock_concept_blocks
+            SELECT * FROM _tmp_concepts
+        """)
+        self.conn.unregister("_tmp_concepts")
+
+    def upsert_hot_themes(self, df: pd.DataFrame):
+        """Upsert daily hot theme rankings."""
+        if df.empty:
+            return
+        self.conn.register("_tmp_hot_themes", df)
+        self.conn.execute("""
+            INSERT OR REPLACE INTO hot_theme_daily
+            SELECT * FROM _tmp_hot_themes
+        """)
+        self.conn.unregister("_tmp_hot_themes")
+
+    def upsert_hot_theme_stocks(self, df: pd.DataFrame):
+        """Upsert hot theme constituent stocks."""
+        if df.empty:
+            return
+        self.conn.register("_tmp_theme_stocks", df)
+        self.conn.execute("""
+            INSERT OR REPLACE INTO hot_theme_stocks
+            SELECT * FROM _tmp_theme_stocks
+        """)
+        self.conn.unregister("_tmp_theme_stocks")
 
     def upsert_trade_calendar(self, df: pd.DataFrame) -> int:
         """写入交易日历"""

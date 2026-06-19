@@ -238,6 +238,8 @@ class Pipeline:
             self._step_technical_factors(stock_codes, target_date)
             self._step_factor_labels(stock_codes, target_date)
             self._step_factor_ic(target_date)
+            self._step_stock_concepts(stock_codes, target_date)
+            self._step_hot_themes(target_date)
             quality_report = self._step_quality_report(target_date)
             self._step_source_audit(stock_codes, target_date)
             self._step_maintenance()
@@ -864,6 +866,38 @@ class Pipeline:
         )
         if not detail.empty or not summary.empty:
             self.db.upsert_factor_ic(detail, summary)
+
+    def _step_stock_concepts(self, stock_codes: list, target_date: str):
+        """Collect concept board affiliations from East Money."""
+        cfg = self.config.get("fetch", {}).get("stock_concepts", {})
+        if not cfg.get("enabled", False):
+            return
+        logger.info("采集东财概念板块归属...")
+        sample = stock_codes[:int(cfg.get("max_stocks", 100))]
+        all_rows = []
+        for code in sample:
+            df = self.fetcher.fetch_stock_concepts(code)
+            if not df.empty:
+                all_rows.append(df)
+        if all_rows:
+            self.db.upsert_stock_concepts(pd.concat(all_rows, ignore_index=True))
+
+    def _step_hot_themes(self, target_date: str):
+        """Collect daily hot themes from THS."""
+        cfg = self.config.get("fetch", {}).get("hot_themes", {})
+        if not cfg.get("enabled", False):
+            return
+        logger.info("采集同花顺热点...")
+        df = self.fetcher.fetch_hot_themes(target_date)
+        if not df.empty:
+            self.db.upsert_hot_themes(df)
+        # Collect stocks for top themes
+        top_n = int(cfg.get("top_themes", 10))
+        top_codes = df.sort_values("rank").head(top_n)["theme_code"].tolist()
+        for code in top_codes:
+            stocks = self.fetcher.fetch_theme_stocks(code, target_date)
+            if not stocks.empty:
+                self.db.upsert_hot_theme_stocks(stocks)
 
     def _step_source_audit(self, stock_codes: list, target_date: str):
         """对腾讯和配置的第二数据源做轻量抽样对账。"""
