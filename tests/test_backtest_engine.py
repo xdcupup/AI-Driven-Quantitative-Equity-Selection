@@ -143,6 +143,32 @@ class BacktestEngineTest(unittest.TestCase):
         # Top group should have higher factor value and return
         self.assertGreater(result["spread"], 0)
 
+    def test_scanner_builds_combinations(self):
+        from core.backtest.scanner import ParameterScanner
+        from core.backtest.config import BacktestConfig
+        cfg = BacktestConfig(
+            start_date="2024-01-01", end_date="2024-01-15",
+            top_n=5,
+        )
+        scanner = ParameterScanner(cfg)
+        scan_params = {
+            "top_n": [3, 5],
+            "factor_columns": [
+                ["return_20d"],
+                ["return_20d", "volatility_20d"],
+            ],
+        }
+        combos = scanner.build_combinations(scan_params)
+        self.assertEqual(len(combos), 4)  # 2×2
+
+    def test_signal_decay_reduces_score_over_time(self):
+        from core.backtest.decay import exponential_decay
+        scores = pd.Series([1.0, 1.0, 1.0])
+        ages = pd.Series([0, 3, 10])
+        decayed = exponential_decay(scores, ages, half_life=5)
+        self.assertAlmostEqual(decayed.iloc[0], 1.0)
+        self.assertLess(decayed.iloc[2], 0.5)
+
 
 class FactorNeutralizerTest(unittest.TestCase):
     def test_industry_neutral_subtracts_group_mean(self):
