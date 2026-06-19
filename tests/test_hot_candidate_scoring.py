@@ -100,6 +100,21 @@ class HotCandidateScoringTest(unittest.TestCase):
             [20, 17, 14, 10, 0, 0],
         )
 
+    def test_enrich_adds_sector_counts_from_theme_stocks(self):
+        from core.scoring.enrich import enrich_sector_info
+
+        candidates = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "trade_date": pd.to_datetime(["2026-06-19"]),
+        })
+        theme_stocks = pd.DataFrame({
+            "theme_code": ["T1", "T1", "T1"],
+            "trade_date": pd.to_datetime(["2026-06-19"] * 3),
+            "ts_code": ["000001.SZ", "000002.SZ", "000003.SZ"],
+        })
+        result = enrich_sector_info(candidates, pd.DataFrame(), pd.DataFrame(), theme_stocks)
+        self.assertEqual(result.iloc[0]["sector_limit_up_count"], 3)
+
 
 if __name__ == "__main__":
     unittest.main()
