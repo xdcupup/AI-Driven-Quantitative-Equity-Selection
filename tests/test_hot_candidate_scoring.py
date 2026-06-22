@@ -67,6 +67,30 @@ class HotCandidateScoringTest(unittest.TestCase):
         self.assertNotIn("missing:seal_ratio", row["score_reason"])
         self.assertNotIn("missing:sector_rank", row["score_reason"])
 
+    def test_stable_scoring_degrades_to_kline_fields_when_daily_basic_is_missing(self):
+        candidates = pd.DataFrame({
+            "ts_code": ["000005.SZ"],
+            "trade_date": pd.to_datetime(["2026-06-19"]),
+            "open_gap_pct": [2.0],
+            "is_one_price_limit_up": [False],
+            "pct_chg": [10.0],
+            "limit_up_streak": [1],
+            "volume_ratio": [1.8],
+            "amount": [4.2],
+            "is_st": [False],
+            "is_delisted": [False],
+        })
+
+        row = score_hot_candidates(candidates).iloc[0]
+
+        self.assertEqual(row["buyability_score"], 25)
+        self.assertEqual(row["support_quality_score"], 20)
+        self.assertEqual(row["liquidity_structure_score"], 16)
+        self.assertGreaterEqual(row["total_score"], 80)
+        self.assertIn("fallback:liquidity_amount_only", row["score_reason"])
+        self.assertNotIn("missing:turnover_rate", row["score_reason"])
+        self.assertNotIn("missing:circ_mv", row["score_reason"])
+
     def test_rejects_st_or_delisted_candidates(self):
         candidates = pd.DataFrame({
             "ts_code": ["000003.SZ", "000004.SZ"],

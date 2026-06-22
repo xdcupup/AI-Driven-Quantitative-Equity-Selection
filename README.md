@@ -241,6 +241,20 @@ scoring:
 
 运行主流水线后，评分结果写入 `hot_candidate_scores`，可直接用 `--from-db` 回测。
 
+也可以单独批量生成某个区间的短线评分：
+
+```bash
+python scripts/build_hot_candidate_scores.py \
+  --start 2026-01-05 \
+  --end 2026-06-18 \
+  --strategy-name hot_candidate_v2_stable \
+  --min-pct-chg 9.0 \
+  --lookback-days 10 \
+  --output data/hot_candidates/hot_candidate_v2_stable_20260105_20260618_summary.json
+```
+
+如果历史 `daily_basic` 不完整，稳定版评分会自动降级：承接质量优先使用量比和成交额，流动性优先使用成交额；有换手率和流通市值时再使用完整规则。
+
 ### 短线候选回测
 
 评分结果可以直接进入回测，入口为 `scripts/run_hot_candidate_backtest.py`。当前版本支持从 CSV 读取 `score_hot_candidates` 的输出，也支持从 DuckDB 的 `hot_candidate_scores` 表读取历史评分快照，并从 `daily_kline` 读取对应股票 K 线。
@@ -278,6 +292,16 @@ python scripts/run_hot_candidate_backtest.py \
   --max-positions 10 \
   --output data/backtest/hot_candidate_20260619.json
 ```
+
+当前本地样本区间 `2026-01-05` 到 `2026-06-18` 的初步回测结果：
+
+| 阈值 | 入选信号 | 交易天数 | 总收益 | 年化 | Sharpe | 最大回撤 | 胜率 |
+|------|----------|----------|--------|------|--------|----------|------|
+| `min-score 60` | 8511 | 107 | 33.23% | 96.54% | 8.95 | -1.21% | 42.06% |
+| `min-score 70` | 2769 | 106 | 37.35% | 112.66% | 8.98 | -0.93% | 41.51% |
+| `min-score 75` | 500 | 100 | 28.28% | 87.31% | 4.53 | -2.94% | 16.00% |
+
+这组结果只能作为工程验证和参数扫描起点。当前回测尚未加入涨跌停可成交约束、开盘滑点异常处理和真实盘口容量约束。
 
 ## 开发说明
 

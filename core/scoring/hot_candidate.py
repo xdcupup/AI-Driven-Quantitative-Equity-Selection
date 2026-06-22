@@ -71,19 +71,19 @@ def _score_buyability(row: pd.Series, reasons: list[str]) -> int:
 
 def _score_support_quality(row: pd.Series, reasons: list[str]) -> int:
     volume_ratio = _num(row, "volume_ratio", reasons)
-    turnover = _num(row, "turnover_rate", reasons)
     amount = _num(row, "amount", reasons)
-    if volume_ratio is None or turnover is None or amount is None:
+    turnover = _optional_num(row, "turnover_rate")
+    if volume_ratio is None or amount is None:
         return 0
-    checks = [
-        1.2 <= volume_ratio <= 3.5,
-        5 <= turnover <= 25,
-        amount >= 3,
-    ]
+
+    checks = [1.2 <= volume_ratio <= 3.5, amount >= 3]
+    if turnover is not None:
+        checks.append(5 <= turnover <= 25)
     count = sum(checks)
-    if count == 3:
+    total_checks = len(checks)
+    if count == total_checks:
         return 20
-    if count == 2:
+    if count >= max(total_checks - 1, 1):
         return 16
     if count == 1:
         return 10
@@ -113,10 +113,19 @@ def _score_safety(row: pd.Series, reasons: list[str]) -> tuple[int, bool]:
 
 
 def _score_liquidity(row: pd.Series, reasons: list[str]) -> int:
-    circ_mv = _num(row, "circ_mv", reasons)
     amount = _num(row, "amount", reasons)
-    if circ_mv is None or amount is None:
+    if amount is None:
         return 0
+    circ_mv = _optional_num(row, "circ_mv")
+    if circ_mv is None:
+        reasons.append("fallback:liquidity_amount_only")
+        if amount >= 5:
+            return 20
+        if amount >= 3:
+            return 16
+        if amount >= 1:
+            return 10
+        return 4
     if 20 <= circ_mv <= 160 and amount >= 3:
         return 20
     if 10 <= circ_mv <= 260:
@@ -124,6 +133,18 @@ def _score_liquidity(row: pd.Series, reasons: list[str]) -> int:
     if 5 <= circ_mv <= 400:
         return 10
     return 4
+
+
+def _optional_num(row: pd.Series, column: str) -> float | None:
+    if column not in row or _missing(row[column]):
+        return None
+    try:
+        value = float(row[column])
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(value):
+        return None
+    return value
 
 
 def _score_leader(row: pd.Series, reasons: list[str]) -> int:
