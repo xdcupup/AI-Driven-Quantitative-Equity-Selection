@@ -120,4 +120,6 @@ class BacktestEngine:
             stamp_duty_bps=self.config.stamp_duty_bps,
             block_limit_up_buys=self.config.block_limit_up_buys,
             limit_up_threshold=self.config.limit_up_threshold,
+            block_limit_down_sells=self.config.block_limit_down_sells,
+            limit_down_threshold=self.config.limit_down_threshold,
         )

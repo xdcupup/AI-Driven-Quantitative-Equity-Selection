@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 import pandas as pd
 
@@ -50,19 +49,14 @@ class Portfolio:
             turnover_limit: max fraction of portfolio to turn over (unused in v1)
         """
         targets = target_stocks[:max_positions]
-        if not targets:
-            return
+        target_weight = 1.0 / len(targets) if targets else 0.0
 
-        n = len(targets)
-        target_weight = 1.0 / n
-
-        current_codes = set(self.positions.keys())
         target_set = set(targets)
 
-        # Sell positions not in targets
+        # Mark positions not in targets for execution-date selling.
         for code in list(self.positions.keys()):
             if code not in target_set:
-                self._sell(code, signal_date)
+                self.positions[code].weight = 0.0
 
         # Adjust existing / add new positions
         for code in targets:
@@ -85,6 +79,8 @@ class Portfolio:
         stamp_duty_bps: float = 10.0,
         block_limit_up_buys: bool = True,
         limit_up_threshold: float = 0.095,
+        block_limit_down_sells: bool = True,
+        limit_down_threshold: float = -0.095,
     ) -> float:
         """Mark positions to execution prices and compute daily return.
 
@@ -108,6 +104,26 @@ class Portfolio:
             if price is None or price <= 0:
                 continue
             self._last_prices[code] = float(price)
+
+            if pos.avg_cost > 0.0 and pos.weight <= 0.0:
+                prev_close = prev_close_map.get(code)
+                if (
+                    block_limit_down_sells
+                    and prev_close is not None
+                    and prev_close > 0
+                    and (price / prev_close - 1) <= limit_down_threshold
+                ):
+                    trades.append({
+                        "trade_date": exec_date,
+                        "ts_code": code,
+                        "action": "skip_sell",
+                        "reason": "limit_down_open",
+                        "price": float(price),
+                    })
+                    total_position_value += pos.shares * price
+                    continue
+                self._execute_sell(code, pos, exec_date, price, trades, stamp_duty_bps)
+                continue
 
             # On first mark, set avg_cost and allocate cash
             if pos.avg_cost == 0.0:
@@ -144,17 +160,28 @@ class Portfolio:
         day_return = (new_nav - prev_nav) / prev_nav if prev_nav > 0 else 0.0
         return float(day_return)
 
-    def _sell(self, ts_code: str, trade_date: pd.Timestamp):
-        """Remove a position and return cash."""
-        pos = self.positions.pop(ts_code, None)
-        if pos is None:
-            return
-        price = self._last_prices.get(ts_code, pos.avg_cost)
+    def _execute_sell(
+        self,
+        ts_code: str,
+        pos: Position,
+        trade_date: pd.Timestamp,
+        price: float,
+        trades: list,
+        stamp_duty_bps: float,
+    ):
+        """Sell a position at execution price."""
         proceeds = pos.shares * price
         self.cash += proceeds
-        # Stamp duty on sell
-        stamp = proceeds * 10.0 / 10000
+        stamp = proceeds * stamp_duty_bps / 10000
         self.cash -= stamp
+        self.positions.pop(ts_code, None)
+        trades.append({
+            "trade_date": trade_date,
+            "ts_code": ts_code,
+            "action": "sell",
+            "price": float(price),
+            "shares": int(pos.shares),
+        })
 
 
 def _previous_close_map(kline: pd.DataFrame, exec_date: pd.Timestamp) -> dict[str, float]:

@@ -178,6 +178,8 @@ backtest:
   stamp_duty_bps: 10.0
   block_limit_up_buys: true
   limit_up_threshold: 0.095
+  block_limit_down_sells: true
+  limit_down_threshold: -0.095
   industry_neutral: false
   market_cap_neutral: false
   scan_enabled: false

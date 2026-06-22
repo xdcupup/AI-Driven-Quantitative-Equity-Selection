@@ -38,6 +38,8 @@ class BacktestConfig:
     stamp_duty_bps: float = 10.0
     block_limit_up_buys: bool = True
     limit_up_threshold: float = 0.095
+    block_limit_down_sells: bool = True
+    limit_down_threshold: float = -0.095
 
     # Neutralization
     industry_neutral: bool = False

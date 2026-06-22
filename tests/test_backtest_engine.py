@@ -138,6 +138,59 @@ class BacktestEngineTest(unittest.TestCase):
         self.assertEqual(trades[0]["action"], "skip_buy")
         self.assertEqual(trades[0]["reason"], "limit_up_open")
 
+    def test_portfolio_keeps_position_when_next_open_is_limit_down_on_sell(self):
+        from core.backtest.portfolio import Portfolio
+        p = Portfolio(1_000_000.0)
+        p.rebalance(
+            target_stocks=["000001.SZ"],
+            signal_date=pd.Timestamp("2024-01-02"),
+            max_positions=10,
+            position_sizing="equal_weight",
+            turnover_limit=1.0,
+        )
+        initial_kline = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "trade_date": pd.to_datetime(["2024-01-03"]),
+            "open": [10.0],
+            "close": [10.0],
+        })
+        p.mark_to_market(
+            initial_kline,
+            pd.Timestamp("2024-01-02"),
+            pd.Timestamp("2024-01-03"),
+            [],
+        )
+        self.assertIn("000001.SZ", p.positions)
+
+        p.rebalance(
+            target_stocks=[],
+            signal_date=pd.Timestamp("2024-01-03"),
+            max_positions=10,
+            position_sizing="equal_weight",
+            turnover_limit=1.0,
+        )
+        trades = []
+        sell_kline = pd.DataFrame({
+            "ts_code": ["000001.SZ", "000001.SZ"],
+            "trade_date": pd.to_datetime(["2024-01-03", "2024-01-04"]),
+            "open": [10.0, 9.0],
+            "close": [10.0, 9.0],
+        })
+
+        p.mark_to_market(
+            sell_kline,
+            pd.Timestamp("2024-01-03"),
+            pd.Timestamp("2024-01-04"),
+            trades,
+            block_limit_down_sells=True,
+            limit_down_threshold=-0.095,
+        )
+
+        self.assertIn("000001.SZ", p.positions)
+        self.assertGreater(p.positions["000001.SZ"].shares, 0)
+        self.assertEqual(trades[0]["action"], "skip_sell")
+        self.assertEqual(trades[0]["reason"], "limit_down_open")
+
     def test_compute_metrics_returns_zero_for_empty(self):
         from core.backtest.analytics import compute_metrics
         from core.backtest.config import BacktestConfig
