@@ -118,4 +118,6 @@ class BacktestEngine:
             slippage_bps=self.config.slippage_bps,
             commission_bps=self.config.commission_bps,
             stamp_duty_bps=self.config.stamp_duty_bps,
+            block_limit_up_buys=self.config.block_limit_up_buys,
+            limit_up_threshold=self.config.limit_up_threshold,
         )

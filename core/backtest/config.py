@@ -36,6 +36,8 @@ class BacktestConfig:
     slippage_bps: float = 5.0
     commission_bps: float = 2.5
     stamp_duty_bps: float = 10.0
+    block_limit_up_buys: bool = True
+    limit_up_threshold: float = 0.095
 
     # Neutralization
     industry_neutral: bool = False

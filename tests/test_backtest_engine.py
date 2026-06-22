@@ -105,6 +105,39 @@ class BacktestEngineTest(unittest.TestCase):
         self.assertGreater(pos.shares, 0)
         self.assertLess(p.cash, 1_000_000.0)
 
+    def test_portfolio_skips_new_buy_when_next_open_is_limit_up(self):
+        from core.backtest.portfolio import Portfolio
+        p = Portfolio(1_000_000.0)
+        p.rebalance(
+            target_stocks=["000001.SZ"],
+            signal_date=pd.Timestamp("2024-01-02"),
+            max_positions=10,
+            position_sizing="equal_weight",
+            turnover_limit=1.0,
+        )
+        trades = []
+        kline = pd.DataFrame({
+            "ts_code": ["000001.SZ", "000001.SZ"],
+            "trade_date": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+            "open": [10.0, 11.0],
+            "close": [10.0, 11.0],
+        })
+
+        day_return = p.mark_to_market(
+            kline,
+            pd.Timestamp("2024-01-02"),
+            pd.Timestamp("2024-01-03"),
+            trades,
+            block_limit_up_buys=True,
+            limit_up_threshold=0.095,
+        )
+
+        self.assertEqual(day_return, 0.0)
+        self.assertNotIn("000001.SZ", p.positions)
+        self.assertEqual(p.cash, 1_000_000.0)
+        self.assertEqual(trades[0]["action"], "skip_buy")
+        self.assertEqual(trades[0]["reason"], "limit_up_open")
+
     def test_compute_metrics_returns_zero_for_empty(self):
         from core.backtest.analytics import compute_metrics
         from core.backtest.config import BacktestConfig

@@ -176,6 +176,8 @@ backtest:
   slippage_bps: 5.0
   commission_bps: 2.5
   stamp_duty_bps: 10.0
+  block_limit_up_buys: true
+  limit_up_threshold: 0.095
   industry_neutral: false
   market_cap_neutral: false
   scan_enabled: false

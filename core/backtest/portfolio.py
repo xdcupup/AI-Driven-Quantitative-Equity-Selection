@@ -83,6 +83,8 @@ class Portfolio:
         slippage_bps: float = 5.0,
         commission_bps: float = 2.5,
         stamp_duty_bps: float = 10.0,
+        block_limit_up_buys: bool = True,
+        limit_up_threshold: float = 0.095,
     ) -> float:
         """Mark positions to execution prices and compute daily return.
 
@@ -96,6 +98,7 @@ class Portfolio:
             return 0.0
 
         price_map = dict(zip(exec_kline["ts_code"], exec_kline["open"]))
+        prev_close_map = _previous_close_map(kline, exec_date)
 
         prev_nav = self.nav
         total_position_value = 0.0
@@ -108,6 +111,22 @@ class Portfolio:
 
             # On first mark, set avg_cost and allocate cash
             if pos.avg_cost == 0.0:
+                prev_close = prev_close_map.get(code)
+                if (
+                    block_limit_up_buys
+                    and prev_close is not None
+                    and prev_close > 0
+                    and (price / prev_close - 1) >= limit_up_threshold
+                ):
+                    self.positions.pop(code, None)
+                    trades.append({
+                        "trade_date": exec_date,
+                        "ts_code": code,
+                        "action": "skip_buy",
+                        "reason": "limit_up_open",
+                        "price": float(price),
+                    })
+                    continue
                 alloc = self.initial_capital * pos.weight
                 # Apply slippage: buy at slightly worse price
                 buy_price = price * (1 + slippage_bps / 10000)
@@ -136,3 +155,18 @@ class Portfolio:
         # Stamp duty on sell
         stamp = proceeds * 10.0 / 10000
         self.cash -= stamp
+
+
+def _previous_close_map(kline: pd.DataFrame, exec_date: pd.Timestamp) -> dict[str, float]:
+    if "close" not in kline.columns:
+        return {}
+    history = kline[pd.to_datetime(kline["trade_date"], errors="coerce") < exec_date].copy()
+    if history.empty:
+        return {}
+    history["trade_date"] = pd.to_datetime(history["trade_date"], errors="coerce")
+    latest = history.sort_values("trade_date").groupby("ts_code").tail(1)
+    return {
+        str(row["ts_code"]): float(row["close"])
+        for _, row in latest.iterrows()
+        if pd.notna(row.get("close")) and float(row["close"]) > 0
+    }
